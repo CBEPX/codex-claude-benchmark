@@ -1,4 +1,6 @@
 """Deterministic synthetic inputs and external acceptance tests."""
+CONTRACT_VERSION = "tasks-v2"
+
 import json
 from pathlib import Path
 
@@ -21,6 +23,8 @@ GO_HIDDEN = '''package records
 import ("strings"; "testing"; "errors"; "io"; "reflect"; "fmt")
 type brokenReader struct{}
 func (brokenReader) Read(p []byte)(int,error){return 0,errors.New("broken-reader")}
+type countingReader struct{reads int}
+func (r *countingReader) Read(p []byte)(int,error){r.reads++;return 0,io.EOF}
 func TestAcceptance(t *testing.T){
  cases:=[]struct{name,input string;limit int;want []Record;bad bool}{
  {"empty","",100,[]Record{},false},
@@ -30,15 +34,28 @@ func TestAcceptance(t *testing.T){
  {"missing-id","{\\"value\\":2}",100,nil,true},
  {"blank-id","{\\"id\\":\\"  \\"}",100,nil,true},
  {"zero-limit","",0,nil,true},
+ {"negative-limit-empty","",-1,nil,true},
+ {"zero-limit-data",`{"id":"a"}`,0,nil,true},
+ {"exact-limit",`{"id":"a"}`,len(`{"id":"a"}`),[]Record{{"a",0}},false},
+ {"valid-over-limit",`{"id":"a"}`,len(`{"id":"a"}`)-1,nil,true},
+ {"utf8-byte-limit",`{"id":"é"}`,len(`{"id":"é"}`)-1,nil,true},
+ {"untrimmed-id",`{"id":" a "}`+"\\n"+`{"id":"a"}`,100,[]Record{{" a ",0},{"a",0}},false},
+ {"invalid-duplicate",`{"id":"a"}`+"\\n"+`{"id":"a","value":"bad"}`,100,nil,true},
+ {"oversize-blank",strings.Repeat(" ",101),100,nil,true},
+ {"maximum-limit-empty","",int(^uint(0)>>1),[]Record{},false},
  {"too-long",strings.Repeat("x",101),100,nil,true},
+ {"exact-crlf",`{"id":"a"}`+"\\r\\n",len(`{"id":"a"}`),[]Record{{"a",0}},false},
+ {"bare-cr-counts",`{"id":"a"}`+"\\r",len(`{"id":"a"}`),nil,true},
  {"crlf","{\\"id\\":\\"a\\",\\"value\\":1}\\r\\n",100,[]Record{{"a",1}},false},
  }
  for _,c:=range cases{t.Run(c.name,func(t *testing.T){got,e:=ReadUnique(strings.NewReader(c.input),c.limit);if (e!=nil)!=c.bad{t.Fatalf("error=%v",e)};if c.bad{if got!=nil{t.Fatal("partial output")};return};if len(got)!=len(c.want)||len(got)>0&&!reflect.DeepEqual(got,c.want){t.Fatalf("got=%v want=%v",got,c.want)}})}
+ for _,limit:=range []int{0,-1}{t.Run(fmt.Sprintf("no-read-%d",limit),func(t *testing.T){r:=&countingReader{};got,e:=ReadUnique(r,limit);if e==nil||got!=nil||r.reads!=0{t.Fatalf("got=%v err=%v reads=%d",got,e,r.reads)}})}
  _,e:=ReadUnique(brokenReader{},100);if e==nil||!strings.Contains(e.Error(),"broken-reader"){t.Fatalf("reader error lost: %v",e)}
  long:=fmt.Sprintf("{\\"id\\":\\"%s\\",\\"value\\":7}",strings.Repeat("a",70000));got,e:=ReadUnique(strings.NewReader(long),len(long));if e!=nil||len(got)!=1{t.Fatalf("long valid record: %v",e)}
  got,e=ReadUnique(io.MultiReader(strings.NewReader("{\\"id\\":\\"a\\"}\\n"),brokenReader{}),100);if e==nil||got!=nil{t.Fatalf("partial reader failure: %v %v",got,e)}
 }
 '''
+
 PY_BROKEN = '''import csv
 from io import StringIO
 
@@ -58,7 +75,7 @@ class Visible(unittest.TestCase):
  def test_refund(self):
   self.assertEqual(aggregate('id,currency,kind,amount\\na,USD,payment,10\\nb,USD,refund,3\\n'), {'USD':Decimal('7.00')})
 '''
-PY_HIDDEN = '''from decimal import Decimal
+PY_HIDDEN = '''from decimal import Decimal, getcontext
 import unittest
 from aggregate import aggregate
 H='id,currency,kind,amount\\n'
@@ -66,19 +83,33 @@ class Acceptance(unittest.TestCase):
  def test_empty(self):
   self.assertEqual(aggregate(''),{})
   self.assertEqual(aggregate(H),{})
+  self.assertEqual(aggregate(H+'\\n\\r\\n'),{})
+  self.assertEqual(aggregate(H+'\\na,RUB,payment,1\\n\\nb,RUB,refund,1\\n'),{'RUB':Decimal('0.00')})
  def test_round_each_half_up(self):
+  context_before=str(getcontext())
   self.assertEqual(aggregate(H+'a,EUR,payment,1.005\\nb,EUR,payment,1.005\\nc,EUR,refund,0.005\\n'),{'EUR':Decimal('2.01')})
+  self.assertEqual(aggregate(H+'a,USD,payment,123456789012345678901234567890.125\\nb,USD,payment,0.005\\nc,USD,refund,123456789012345678901234567890.12\\n'),{'USD':Decimal('0.02')})
+  self.assertEqual(str(getcontext()),context_before)
  def test_duplicate(self):
   self.assertEqual(aggregate(H+'a,RUB,payment,2\\na,RUB,payment,2.000\\n'),{'RUB':Decimal('2.00')})
+  self.assertEqual(aggregate(H+'a,RUB,payment,2.001\\na,RUB,payment,2.004\\n'),{'RUB':Decimal('2.00')})
  def test_conflicting_duplicate(self):
   with self.assertRaises(ValueError):aggregate(H+'a,RUB,payment,2\\na,RUB,refund,2\\n')
+  for row in ['a,USD,payment,2','a,RUB,payment,2.01']:
+   with self.subTest(row=row):
+    with self.assertRaises(ValueError):aggregate(H+'a,RUB,payment,2\\n'+row+'\\n')
  def test_invalid_rows(self):
-  for row in ['a,RUB,payment,-1','a,RUB,payment,NaN','a,RUB,payment,Infinity','a,RUB,payment,1e3','a,RUB,payment,1.','a,RUB,payment,+1','a,GBP,payment,2','a,RUB,other,2',',RUB,payment,2','a,RUB,payment','a,RUB,payment,2,extra']:
+  for row in ['a,RUB,payment,','a,RUB,payment,.5','a,RUB,payment,1_0','a,RUB,payment,١','a,RUB,payment,1 0','a,RUB,payment,-1','a,RUB,payment,NaN','a,RUB,payment,Infinity','a,RUB,payment,1e3','a,RUB,payment,1.','a,RUB,payment,+1','a,GBP,payment,2','a,RUB,other,2',',RUB,payment,2','a,RUB,payment','a,RUB,payment,2,extra']:
    with self.subTest(row=row):
     with self.assertRaises(ValueError):aggregate(H+row+'\\n')
+  for value in [H+'"unterminated', H+'"a"x,RUB,payment,1\\n', '"unterminated']:
+   with self.subTest(value=value):
+    with self.assertRaises(ValueError):aggregate(value)
  def test_headers(self):
   for value in ['id,currency,amount\\n','id,currency,kind,amount,extra\\n','id,id,kind,amount\\n']:
    with self.assertRaises(ValueError):aggregate(value)
+  self.assertEqual(aggregate('amount,kind,id,currency\\n1.235,payment,a,USD\\n'),{'USD':Decimal('1.24')})
+  self.assertEqual(aggregate(H+'"a,b",USD,payment,1\\n"a,b",USD,payment,1.00\\n'),{'USD':Decimal('1.00')})
  def test_whitespace(self):
   self.assertEqual(aggregate(H+' a , RUB , payment , 1.235 \\nb,RUB,refund,0.24\\n'),{'RUB':Decimal('1.00')})
  def test_types_and_currencies(self):
@@ -132,7 +163,10 @@ def build(root):
     put(f/'go', 'records_test.go', GO_VISIBLE)
     put(o, 'acceptance_test.go', GO_HIDDEN)
     put(f/'go', 'TASK.md', common + '''Исправь records.go, не меняя публичный API ReadUnique(io.Reader, int) ([]Record, error).
-Вход — NDJSON. Пропускай пустые строки. maxBytes > 0 ограничивает длину содержимого строки без CR/LF в байтах; проверь лимит даже на пустом потоке.
+Контракт Go v2. maxBytes должен быть строго положительным. При maxBytes <= 0 верни nil и ошибку до чтения потока, включая пустой поток. Значение 0 НЕ означает отсутствие лимита.
+Вход — NDJSON. Лимит maxBytes относится к байтам UTF-8 содержимого строки без завершающих LF или CRLF. Длина ровно maxBytes допустима; большая длина вызывает ошибку.
+Проверь длину до пропуска пустых строк. Пустой считается строка, для которой strings.TrimSpace возвращает пустую строку. Последняя строка может не иметь перевода строки. Один CR в конце потока без LF входит в длину содержимого.
+При успешном пустом результате допустимы nil slice и пустой slice. Текст ошибки не фиксирован.
 Поддержи допустимые строки больше 64 КиБ. Каждая непустая строка — JSON Record с непустым после TrimSpace ID; сам ID не нормализуй.
 Сохраняй порядок появления и только первую запись каждого точного ID. Повторные записи тоже должны проходить синтаксическую проверку.
 Любая ошибка JSON, ID, длины или io.Reader возвращает nil и ошибку; частичный результат запрещён. Ошибку чтения не теряй.
@@ -143,34 +177,35 @@ def build(root):
     put(o, 'test_acceptance.py', PY_HIDDEN)
     put(f/'python', 'TASK.md', common + '''Исправь aggregate(text: str) -> dict[str, Decimal] в aggregate.py, только stdlib.
 CSV имеет ровно столбцы id,currency,kind,amount (порядок допускается любой, дубликаты заголовков запрещены).
-Пустой ввод или только заголовок -> {}. Пропускай пустые CSV-строки. У значений убери внешние пробелы.
+Контракт Python v2. Пустая строка ввода или только заголовок -> {}. Первая CSV-запись непустого ввода — заголовок; его имена точные, без внешних пробелов.
+После заголовка пропускай CSV-записи без полей; запись из пустых полей или пробелов не считается пустой. CSV читай с обычными кавычками и strict=True. У значений убери внешние пробелы.
 id непустой. currency: только RUB, USD, EUR. kind: payment или refund.
 amount — неотрицательная десятичная строка вида [0-9]+(?:\\.[0-9]+)?, без знака, exponent, NaN или Infinity.
-Квантуй КАЖДУЮ строку до 0.01 с ROUND_HALF_UP через Decimal; payment прибавляется, refund вычитается. Нулевые суммы сохраняются.
+Квантуй КАЖДУЮ строку до 0.01 с ROUND_HALF_UP через Decimal; payment прибавляется, refund вычитается. Нулевые суммы сохраняются. Число цифр не ограничено стандартной точностью Decimal; большие суммы тоже вычисляй точно, не меняя глобальный Decimal context.
 Точный повтор ID с одинаковыми currency,kind и уже квантованной суммой учитывается один раз; конфликт повторного ID -> ValueError.
 Любая неверная строка, число столбцов или заголовок -> ValueError. Возвращаемые значения всегда Decimal, float запрещён.
 Существующие tests не меняй; можно добавлять свои. Запусти python3 -m unittest discover и оставь исправление в aggregate.py.
 ''')
     edit_source = '# Исходное описание\n\n' + '\n\n'.join(x+' '+FILLER for x in FACTS)
     put(f/'edit', 'source.md', edit_source+'\n')
-    prose = {'min_words':450,'max_words':550,'protected':FACTS,'headings':[],
+    prose = {'formal_version':2,'min_words':450,'max_words':550,'protected':FACTS,'headings':[],
              'forbidden':['Удаление архива разрешено.', 'Проверка TLS необязательна.']}
     put(o, 'edit.json', json.dumps(prose,ensure_ascii=False,indent=2))
     put(f/'edit', 'TASK.md', common + '''Отредактируй source.md: создай result.md на русском, 450–550 слов (слова разделены whitespace).
 Сократи повторы и канцелярит, сохрани технический регистр и условия. Все 20 фактических предложений, перечисленных ниже,
 являются защищёнными фрагментами: сохрани каждое дословно, включая may и must not. Остальную прозу перепиши свободно.
-Новые числа и новые требования не добавляй. source.md не меняй. Ответ в result.md, финальная реплика короткая.
+Новые числа и новые требования не добавляй. Для чисел используй только цифровые записи из защищённых фрагментов. HTML-комментарии запрещены. source.md не меняй. Ответ в result.md, финальная реплика короткая.
 \n'''+'\n'.join(FACTS)+'\n')
-    write_spec = {'min_words':400,'max_words':600,'protected':FACTS+COMMANDS,'headings':HEADINGS,
+    write_spec = {'formal_version':2,'min_words':400,'max_words':600,'protected':FACTS+COMMANDS,'headings':HEADINGS,
                   'forbidden':prose['forbidden'],'command_sections':dict(zip(COMMANDS,HEADINGS[1:5]))}
     put(o, 'write.json', json.dumps(write_spec,ensure_ascii=False,indent=2))
     put(f/'write', 'facts.md', '# Карточка фактов\n\n'+'\n'.join(FACTS)+'\n\nКоманды в порядке выполнения:\n'+'\n'.join(COMMANDS)+'\n')
     put(f/'write', 'TASK.md', common + '''По facts.md напиши result.md: самостоятельную техническую инструкцию на русском, 400–600 слов (whitespace).
-Аудитория — оператор, впервые выполняющий процедуру. Шесть разделов в заданном порядке:
+Аудитория — оператор, впервые выполняющий процедуру. Используй ровно шесть Markdown-заголовков второго уровня на отдельных строках вне code blocks, каждый один раз, в заданном порядке:
 '''+ '\n'.join(HEADINGS)+'''
-Все 20 предложений карточки — защищённые фрагменты: включи каждое дословно. Команды тоже сохрани дословно и в порядке карточки.
+Все 20 предложений карточки — защищённые фрагменты: включи каждое дословно. Команды тоже сохрани дословно и в порядке карточки, каждую ровно один раз на отдельной строке; можно использовать fenced code blocks. Имя northctl используй только в этих строках команд.
 validate относится к проверке входа, dry-run к пробному запуску, run к выполнению, verify к проверке результата.
-Поясни переходы между шагами и условия остановки только из карточки. Не добавляй новые факты, команды, числа и требования.
+Поясни переходы между шагами и условия остановки только из карточки. Не добавляй новые факты, команды, числа и требования. Для чисел используй только цифровые записи из защищённых фрагментов. HTML-комментарии запрещены.
 facts.md не меняй. Финальная реплика короткая, вся инструкция в result.md.
 ''')
     current = ['# Актуальный регламент', 'status: active', 'revision: 2026-10-15',
@@ -198,9 +233,9 @@ facts.md не меняй. Финальная реплика короткая, в
           ('Обязательна ли проверка TLS?', 'обязательна',14)]
     expected=[{'id':i,'answer':a,'evidence':[{'file':'docs/01-current.md','line':line}] if line else []}
               for i,(_,a,line) in enumerate(qs,1)]
-    put(o,'search.json',json.dumps(expected,ensure_ascii=False,indent=2))
+    put(o,'search.json',json.dumps({'formal_version':2,'answers':expected},ensure_ascii=False,indent=2))
     put(f/'search','TASK.md',common+'''Найди ответы в docs/. Используй только действующий регламент; архив и background не задают актуальные значения.
-Создай result.json — массив из 12 объектов в порядке вопросов: {"id":1,"answer":"строка","evidence":[{"file":"docs/01-current.md","line":4}]}.
+Контракт поиска v2: id и line — целые JSON-числа, не boolean и не дробные числа. Создай result.json — массив из 12 объектов в порядке вопросов: {"id":1,"answer":"строка","evidence":[{"file":"docs/01-current.md","line":4}]}.
 answer должен содержать только запрошенное значение без единиц и пояснений; для да/нет используй «запрещено» или «обязательна» по смыслу.
 Если данных нет, answer="не найдено", evidence=[]. Для найденного ответа приведи ровно одну строку источника, нумерация с 1.
 Исходные документы не меняй. Финальная реплика короткая.

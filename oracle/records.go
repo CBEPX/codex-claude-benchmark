@@ -2,6 +2,7 @@ package records
 
 import (
  "bufio"
+ "bytes"
  "encoding/json"
  "fmt"
  "io"
@@ -15,6 +16,10 @@ func ReadUnique(r io.Reader, maxBytes int) ([]Record, error) {
  capacity := int(^uint(0) >> 1)
  if maxBytes <= capacity-2 { capacity = maxBytes+2 }
  s := bufio.NewScanner(r)
+ s.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+  if atEOF && len(data)>0 && !bytes.ContainsRune(data,'\n') {return len(data),data,nil}
+  return bufio.ScanLines(data,atEOF)
+ })
  s.Buffer(make([]byte, min(4096, capacity)), capacity)
  out := []Record{}
  seen := map[string]bool{}

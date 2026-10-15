@@ -91,6 +91,10 @@ To select one series, replace `all` with `2026-10-15-clean` or `2026-10-15-origi
 
 ## Run a new clean series
 
+New runs use `tasks-v2`: [Go requirements](GO-CONTRACT.md) and [the acceptance audit for all five tasks](OBJECTIVITY.md).
+Historical datasets retain their original contract.
+New v2 results must form a separate cohort.
+
 Authenticate both CLIs in your own terminal before you start.
 Check the selected installations:
 

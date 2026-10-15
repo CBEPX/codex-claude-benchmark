@@ -13,6 +13,7 @@ import time
 import engine
 import archive
 import reporting
+import fixtures
 
 ROOT=Path(__file__).resolve().parent
 
@@ -171,7 +172,7 @@ def run(args):
             plugins=json.loads(installed.read_text()).get('plugins',{}) if installed.exists() and not args.fake_bin else {}
             (root/'profiles/claude-clean.json').write_text(json.dumps({'advisorModel':'','disableAllHooks':True,'enabledPlugins':{k:False for k in plugins}},indent=2))
             paths=[p for folder in ('fixtures','oracle') for p in (root/folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts]+[profile/'config.toml',root/'profiles/claude-clean.json']
-            manifest={'frozen_at':engine.stamp(),'files':{str(p.relative_to(root)):engine.input_digest(p) for p in paths},'runner_source_sha256':{p:archive.digest(ROOT/p) for p in ('benchmark.py','engine.py','archive.py','reporting.py','fixtures.py')},'schedule':schedule(),'models':{'codex':args.codex_model,'claude':args.claude_model},'cli_versions':versions,'timeout_seconds':300,'configuration':config}
+            manifest={'contract_version':fixtures.CONTRACT_VERSION,'frozen_at':engine.stamp(),'files':{str(p.relative_to(root)):engine.input_digest(p) for p in paths},'runner_source_sha256':{p:archive.digest(ROOT/p) for p in ('benchmark.py','engine.py','archive.py','reporting.py','fixtures.py')},'schedule':schedule(),'models':{'codex':args.codex_model,'claude':args.claude_model},'cli_versions':versions,'timeout_seconds':300,'configuration':config}
             mf.write_text(json.dumps(manifest,indent=2))
         else:
             manifest=json.loads(mf.read_text())
