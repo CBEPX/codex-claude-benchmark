@@ -1,0 +1,3 @@
+Исправлен `aggregate.py`: строгая валидация CSV, Decimal с ROUND_HALF_UP для каждой строки, refunds и проверка повторных ID.
+
+`python3 -m unittest discover`: все 9 тестов прошли. Существующие тесты не изменены.

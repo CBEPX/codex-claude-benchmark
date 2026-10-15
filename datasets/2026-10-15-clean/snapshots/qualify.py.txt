@@ -1,0 +1,97 @@
+"""Two non-scored real isolation probes; never run without explicit --real."""
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+import subprocess
+import benchmark as b
+
+
+def transcript_path(init):
+    auto = init.get('memory_paths',{}).get('auto')
+    directory = Path(auto).parent if auto else Path.home()/'.claude/projects'/re.sub('[^a-zA-Z0-9]','-',init['cwd'])
+    return directory/(init['session_id']+'.jsonl')
+
+
+def context_violations(contexts):
+    raw = json.dumps(contexts,ensure_ascii=False)
+    found = [x for x in ('# AGENTS.md instructions','Global Codex Instructions','You have superpowers','PONYTAIL MODE ACTIVE','=== REMEMBER ===') if x in raw]
+    if re.search(r'### Available skills(?:\\n)+- ',raw):
+        found.append('user skill catalog')
+    return found
+
+
+def get_probe_contexts(profile, thread_id):
+    sessions = list((profile/'sessions').rglob('*'+thread_id+'.jsonl'))
+    assert len(sessions) == 1, 'Current probe session evidence missing or ambiguous'
+    entries = [json.loads(x) for x in sessions[0].read_text().splitlines()]
+    assert any(x.get('type') == 'session_meta' and x.get('payload',{}).get('id') == thread_id for x in entries)
+    contexts = [x for x in entries if x.get('type') == 'session_meta' or
+                (x.get('type') == 'response_item' and x.get('payload',{}).get('role') in ('user','developer'))]
+    assert contexts, 'Current Codex context evidence missing'
+    return contexts
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--real', action='store_true', required=True)
+    parser.add_argument('--resume', action='store_true')
+    args = parser.parse_args()
+    root = b.ROOT
+    globals_ = [Path('<HOME>/.codex/config.toml'), Path('<HOME>/.codex/AGENTS.md'),
+                Path('<HOME>/.claude/settings.json'), Path('<HOME>/.claude/CLAUDE.md')]
+    hashes = {str(p): b.digest(p) for p in globals_}
+    if not (root/'environment-before.json').exists():
+        (root/'environment-before.json').write_text(json.dumps({'at':b.stamp(),'global_file_hashes':hashes},indent=2))
+    else:
+        hashes = json.loads((root/'environment-before.json').read_text())['global_file_hashes']
+    results = {}
+    for client in ('claude', 'codex'):
+        logs = root/'preflight'/client
+        if logs.exists():
+            if not args.resume or not (logs/'result.json').exists():
+                raise RuntimeError('Existing probe evidence without audited checkpoint; no repeat request')
+            r = json.loads((logs/'result.json').read_text())
+        else:
+            work = logs/'work'; work.mkdir(parents=True)
+            subprocess.run(['git','init','--quiet'],cwd=work,check=True)
+            row = {'client':client,'mode':'controlled'}
+            r = b.run_process(b.client_command(row, logs), work, logs, 90, env=b.client_environment(row),
+                              prompt='This is an authorized isolated benchmark probe. Do not use tools, skills, delegation, or network search. Reply exactly CLEAN_READY and finish.')
+            r.update(b.event_summary(client, logs/'stdout.jsonl'))
+            (logs/'result.json').write_text(json.dumps(r,ensure_ascii=False,indent=2))
+        row = {'client':client,'mode':'controlled'}
+        r.update(b.event_summary(client, logs/'stdout.jsonl'))
+        events = [json.loads(x) for x in (logs/'stdout.jsonl').read_text().splitlines()]
+        env = b.client_environment(row)
+        assert r['status'] == 'ok' and r['cleanup_verified'], (client,r['status'])
+        assert not b.model_errors(client,r), (client,b.model_errors(client,r))
+        if client == 'claude':
+            events = [json.loads(x) for x in (logs/'stdout.jsonl').read_text().splitlines()]
+            init = next(x for x in events if x.get('subtype') == 'init')
+            session = transcript_path(init)
+            entries = [json.loads(x) for x in session.read_text().splitlines()]
+            available = [x['attachment'] for x in entries if x.get('attachment',{}).get('type') == 'advisor_tool']
+            assert not any(x.get('available') for x in available), available
+            r['advisor_available_in_transcript'] = False
+            r['advisor_disable_env'] = env['CLAUDE_CODE_DISABLE_ADVISOR_TOOL']
+        else:
+            thread_id = next(x['thread_id'] for x in events if x.get('type') == 'thread.started')
+            contexts = get_probe_contexts(root/'profiles/codex-controlled', thread_id)
+            raw = json.dumps(contexts,ensure_ascii=False)
+            found = context_violations(contexts)
+            assert not found, found
+            r['custom_instruction_markers'] = found
+            r['context_shape_sha256'] = hashlib.sha256(raw.encode()).hexdigest()
+        results[client] = r
+        (logs/'result.json').write_text(json.dumps(r,ensure_ascii=False,indent=2))
+        print(json.dumps({'client':client,'probe':'PASS','seconds':r['client_seconds'],'advisor_calls':r['advisor_calls'],'hooks':r['hook_events'],'user_plugins':r['user_plugins']},ensure_ascii=False),flush=True)
+    assert all(b.digest(Path(name)) == sha for name,sha in hashes.items()), 'Global config drift during probes'
+    (root/'isolation-preflight.json').write_text(json.dumps({'at':b.stamp(),'customization_free':True,
+        'advisor_disabled':True,'probes':{c:{'status':r['status'],'seconds':r['client_seconds'],'advisor_calls':r['advisor_calls'],'hook_events':r['hook_events'],'user_plugins':r['user_plugins']} for c,r in results.items()},
+        'global_files_unchanged':True,'scored':False,'real_requests':2},ensure_ascii=False,indent=2))
+
+
+if __name__ == '__main__':
+    main()

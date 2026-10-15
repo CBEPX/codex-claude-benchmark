@@ -1,0 +1,256 @@
+import collections
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import signal
+import shutil
+import json
+import time
+import unittest
+from unittest.mock import patch
+
+import benchmark as b
+
+
+class RunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(callable(getattr(b, 'run_process', None)), 'run_process missing')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def run_cmd(self, source, timeout=3):
+        return b.run_process([sys.executable, '-c', source], self.root, self.root, timeout)
+
+    def assert_dead(self, pid):
+        p = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True)
+        self.assertTrue(p.returncode != 0 or p.stdout.strip().startswith('Z'), p.stdout)
+
+    def test_success_and_elapsed(self):
+        r = self.run_cmd('import time; time.sleep(.05); print("done")')
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['returncode'], 0)
+        self.assertGreaterEqual(r['client_seconds'], .05)
+        self.assertIn('done', (self.root / 'stdout.jsonl').read_text())
+
+    def test_failure_is_not_success(self):
+        r = self.run_cmd('import sys; print("failed", file=sys.stderr); sys.exit(7)')
+        self.assertEqual(r['status'], 'error')
+        self.assertEqual(r['returncode'], 7)
+
+    def test_timeout_kills_descendant(self):
+        source = ('import subprocess,sys,time; '
+                  'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(30)"]); '
+                  'open("pid","w").write(str(p.pid)); time.sleep(30)')
+        r = self.run_cmd(source, .3)
+        self.assertEqual(r['status'], 'timeout')
+        self.assertLess(r['client_seconds'], 4)
+        self.assert_dead(int((self.root / 'pid').read_text()))
+
+    def test_success_does_not_leave_background_child(self):
+        source = ('import subprocess,sys; '
+                  'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(30)"]); '
+                  'open("pid","w").write(str(p.pid))')
+        self.run_cmd(source)
+        self.assert_dead(int((self.root / 'pid').read_text()))
+
+    def test_timeout_kills_detached_descendant(self):
+        source = ('import subprocess,sys,time; '
+                  'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(30)"],start_new_session=True); '
+                  'open("detached-pid","w").write(str(p.pid)); time.sleep(30)')
+        r = self.run_cmd(source, .5)
+        pid = int((self.root / 'detached-pid').read_text())
+        def cleanup():
+            try: os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+        self.addCleanup(cleanup)
+        self.assertEqual(r['status'], 'timeout')
+        self.assert_dead(pid)
+
+
+class ContractTests(unittest.TestCase):
+    def test_resume_does_not_launch_after_prior_isolation_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);shutil.copytree(b.ROOT/'fixtures/write',root/'fixtures/write')
+            row={'client':'claude','mode':'controlled','task':'write','rep':1}
+            (root/'manifest.json').write_text(json.dumps({'schedule':[row]}))
+            (root/'isolation-preflight.json').write_text(json.dumps({'customization_free':True}))
+            (root/'results.jsonl').write_text(json.dumps(dict(row,run_id='prior',status='ok',advisor_calls=1))+'\n')
+            with patch.object(b,'ROOT',root),patch.object(b,'check_manifest'),patch.object(b,'run_process',side_effect=RuntimeError('would launch another model')) as run:
+                with self.assertRaisesRegex(RuntimeError,'prior isolation'):
+                    b.run_series()
+                self.assertFalse(run.called)
+
+    def test_claude_pass_requires_complete_init_schema_and_result(self):
+        assistant={'type':'assistant','message':{'model':'claude-opus-5-5','content':[]}}
+        init={'type':'system','subtype':'init','model':'claude-opus-5-5','plugins':[],'mcp_servers':[]}
+        result={'type':'result','subtype':'success','is_error':False,'modelUsage':{'claude-opus-5-5':{}}}
+        for events in ([assistant],[init,assistant],[dict(init,plugins=None),assistant,result]):
+            with self.subTest(events=events),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'events';p.write_text(''.join(json.dumps(x)+'\n' for x in events))
+                self.assertTrue(b.model_errors('claude',b.event_summary('claude',p)))
+
+    def test_codex_probe_audits_only_its_thread_and_includes_user_context(self):
+        import qualify
+        self.assertTrue(callable(getattr(qualify,'get_probe_contexts',None)), 'get_probe_contexts missing')
+        with tempfile.TemporaryDirectory() as d:
+            profile=Path(d);sessions=profile/'sessions';sessions.mkdir()
+            for ident in ('current','other'):
+                entries=[{'type':'session_meta','payload':{'id':ident}},
+                         {'type':'response_item','payload':{'role':'user','content':[{'text':'# AGENTS.md instructions for /test' if ident=='current' else 'OTHER_CTX'}]}},
+                         {'type':'response_item','payload':{'role':'developer','content':[{'text':'standard defaults'}]}}]
+                (sessions/(ident+'.jsonl')).write_text(''.join(json.dumps(x)+'\n' for x in entries))
+            contexts=qualify.get_probe_contexts(profile,'current')
+            self.assertEqual(len(contexts),3)
+            self.assertNotIn('OTHER_CTX',json.dumps(contexts))
+            self.assertTrue(qualify.context_violations(contexts))
+
+    def test_standard_skill_docs_are_not_a_user_skill_catalog(self):
+        import qualify
+        self.assertTrue(callable(getattr(qualify,'context_violations',None)), 'context_violations missing')
+        self.assertEqual(qualify.context_violations([{'text':'Skills, if present, are under "### Available skills".'}]),[])
+        self.assertTrue(qualify.context_violations([{'text':'### Available skills\n- my-custom-skill'}]))
+
+    def test_claude_probe_transcript_without_memory_paths(self):
+        import qualify
+        self.assertTrue(callable(getattr(qualify,'transcript_path',None)), 'transcript_path missing')
+        init={'session_id':'example','cwd':'/tmp/probe.work'}
+        self.assertEqual(qualify.transcript_path(init),Path.home()/'.claude/projects/-tmp-probe-work/example.jsonl')
+
+    def test_profile_trust_cache_is_not_an_experiment_parameter(self):
+        self.assertTrue(callable(getattr(b,'input_digest',None)),'input_digest missing')
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'config.toml'
+            p.write_text('[features]\nhooks=false\n')
+            before=b.input_digest(p)
+            p.write_text('[features]\nhooks=false\n[projects."/synthetic/work"]\ntrust_level="trusted"\n')
+            self.assertEqual(b.input_digest(p),before)
+            p.write_text('[features]\nhooks=true\n')
+            self.assertNotEqual(b.input_digest(p),before)
+
+    def test_codex_scope_allows_task_cache_without_global_trust_edit(self):
+        command=b.client_command({'client':'codex','mode':'native'},Path('/synthetic/run'))
+        self.assertIn('--add-dir',command)
+        self.assertTrue(any('projects.' in value and 'trust_level="trusted"' in value for value in command))
+
+    def test_total_walltime_includes_event_parsing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for name in ['benchmark.py','fixtures.py','test_benchmark.py','plan.md']:
+                shutil.copy2(b.ROOT/name,root/name)
+            for name in ['fixtures','oracle']:
+                shutil.copytree(b.ROOT/name,root/name)
+            profile=root/'profiles/codex-controlled';profile.mkdir(parents=True)
+            shutil.copy2(b.ROOT/'profiles/codex-controlled/config.toml',profile/'config.toml')
+            shutil.copy2(b.ROOT/'profiles/claude-clean.json',root/'profiles/claude-clean.json')
+            (root/'isolation-preflight.json').write_text(json.dumps({'customization_free':True,'fake':True}))
+            fake=root/'fake-bin';fake.mkdir()
+            script=f'#!{sys.executable}\nimport pathlib,shutil,json\nw=pathlib.Path.cwd();r=pathlib.Path(__file__).resolve().parents[1]\nshutil.copy2(r/"oracle/write.md",w/"result.md")\nprint(json.dumps({{"type":"turn.completed","usage":{{"output_tokens":42}}}}))\n'
+            for name in b.CLIENTS:
+                p=fake/name;p.write_text(script);p.chmod(0o700)
+            original=b.event_summary
+            def slow_summary(*args):
+                time.sleep(.2)
+                return original(*args)
+            with patch.object(b,'ROOT',root),patch.object(b,'event_summary',slow_summary):
+                b.freeze();b.run_series(limit=1,fake_bin=fake)
+            row=json.loads((root/'results.jsonl').read_text())
+            self.assertTrue(row['passed'],row['errors'])
+            self.assertGreaterEqual(row['total_seconds']-row['client_seconds']-row['validation_seconds'],.18)
+
+    def test_missing_or_wrong_actual_model_is_rejected(self):
+        self.assertTrue(callable(getattr(b, 'model_errors', None)), 'model_errors missing')
+        self.assertTrue(b.model_errors('claude', {'main_models': []}))
+        self.assertTrue(b.model_errors('claude', {'main_models': ['claude-opus-5-5','wrong']}))
+        self.assertEqual(b.model_errors('claude', {'main_models':['claude-opus-5-5'],'isolation_evidence_complete':True}), [])
+
+    def test_fake_mode_cannot_resolve_a_real_binary(self):
+        self.assertTrue(callable(getattr(b, 'resolve_executables', None)), 'resolve_executables missing')
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for name in ['codex','claude']:
+                p=root/name;p.write_text('#!/bin/sh\nexit 0\n');p.chmod(0o700)
+            self.assertEqual(set(b.resolve_executables(root)), {'codex','claude'})
+            (root/'claude').unlink();(root/'claude').symlink_to('/bin/sh')
+            with self.assertRaises(ValueError): b.resolve_executables(root)
+
+    def test_early_process_exit_is_not_completed_acceptance(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);work=root/'work'
+            shutil.copytree(b.ROOT/'fixtures/python',work)
+            (work/'aggregate.py').write_text('import os; os._exit(0)\n')
+            result=b.validate_run('python',work,root/'logs',os.environ.copy())
+            self.assertTrue(result['errors'], 'exit0 without running tests was accepted')
+
+    def test_write_commands_must_be_in_their_assigned_sections(self):
+        from fixtures import FACTS,FILLER,HEADINGS,COMMANDS
+        spec=json.loads((b.ROOT/'oracle/write.json').read_text())
+        spec['command_sections']=dict(zip(COMMANDS,HEADINGS[1:5]))
+        text='\n\n'.join(FACTS+HEADINGS+COMMANDS)
+        while len(text.split())<470:text+=' '+FILLER
+        self.assertTrue(b.validate_prose(text,spec),'commands all under final heading accepted')
+
+    def test_event_summary_keeps_usage_and_actual_models(self):
+        self.assertTrue(callable(getattr(b, 'event_summary', None)), 'event_summary missing')
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'events'
+            p.write_text('{"type":"system","subtype":"init","model":"claude-opus-5-5"}\n'
+                         '{"type":"result","usage":{"output_tokens":123},"modelUsage":{"claude-opus-5-5":{}}}\n')
+            r = b.event_summary('claude', p)
+            self.assertEqual(r['observed_models'], ['claude-opus-5-5'])
+            self.assertEqual(r['usage']['output_tokens'], 123)
+
+    def test_schedule_has_30_clean_unique_runs_and_balanced_order(self):
+        self.assertTrue(callable(getattr(b, 'schedule', None)), 'schedule missing')
+        rows = b.schedule()
+        self.assertEqual(len(rows), 30)
+        cells = collections.Counter((r['task'], r['mode'], r['client']) for r in rows)
+        self.assertEqual(len(cells), 10)
+        self.assertEqual(set(cells.values()), {3})
+        first = collections.Counter(rows[i]['client'] for i in range(0, 30, 2))
+        self.assertEqual(first, {'codex': 8, 'claude': 7})
+        self.assertEqual(rows, b.schedule())
+        self.assertEqual({r['mode'] for r in rows}, {'controlled'})
+
+
+    def test_clean_environment_disables_advisor_without_global_mutation(self):
+        self.assertTrue(callable(getattr(b,'client_environment',None)), 'client_environment missing')
+        before=dict(os.environ)
+        env=b.client_environment({'client':'claude','mode':'controlled'})
+        self.assertEqual(env.get('CLAUDE_CODE_DISABLE_ADVISOR_TOOL'),'1')
+        self.assertEqual(dict(os.environ),before)
+        cmd=b.client_command({'client':'claude','mode':'controlled'},Path('/synthetic/run'))
+        self.assertEqual(cmd[cmd.index('--setting-sources')+1],'')
+        self.assertIn('--disable-slash-commands',cmd)
+
+    def test_advisor_or_helper_model_is_an_isolation_failure(self):
+        normal={'main_models':['claude-opus-5-5'],'observed_models':['claude-opus-5-5'],'advisor_calls':0,'isolation_evidence_complete':True}
+        self.assertEqual(b.model_errors('claude',normal),[])
+        self.assertTrue(b.model_errors('claude',dict(normal,advisor_calls=1)))
+        self.assertTrue(b.model_errors('claude',dict(normal,observed_models=['claude-opus-5-5','claude-fable-5-1'])))
+
+    def test_event_summary_counts_server_advisor(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'events';p.write_text(json.dumps({'type':'assistant','message':{'model':'claude-opus-5-5','content':[{'type':'server_tool_use','name':'advisor'}]}})+'\n')
+            self.assertEqual(b.event_summary('claude',p).get('advisor_calls'),1)
+
+    def test_prose_preserves_facts_negation_and_length(self):
+        self.assertTrue(callable(getattr(b, 'validate_prose', None)), 'validate_prose missing')
+        spec = {'min_words': 4, 'max_words': 20, 'protected': ['must not delete'], 'headings': []}
+        self.assertEqual(b.validate_prose('You must not delete archives.', spec), [])
+        self.assertTrue(b.validate_prose('You must delete archives.', spec))
+        self.assertTrue(b.validate_prose('must not delete', spec))
+
+    def test_search_requires_correct_answer_and_citation(self):
+        self.assertTrue(callable(getattr(b, 'validate_search', None)), 'validate_search missing')
+        spec = [{'id': 1, 'answer': '25', 'evidence': [{'file': 'current.md', 'line': 3}]}]
+        self.assertEqual(b.validate_search(spec, spec), [])
+        wrong = [{'id': 1, 'answer': '25', 'evidence': [{'file': 'old.md', 'line': 3}]}]
+        self.assertTrue(b.validate_search(wrong, spec))
+        self.assertTrue(b.validate_search([], spec))
+
+
+if __name__ == '__main__':
+    unittest.main()

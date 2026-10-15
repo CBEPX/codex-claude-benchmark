@@ -1,0 +1,8 @@
+{
+  "observed_at": "2026-10-15T15:05:15.496509+00:00",
+  "observation_stage": "publication preparation after the historical series; not an original run-time hardware capture",
+  "python": "Python 3.15.0",
+  "go": "go version go1.27.2 darwin/arm64",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434",
+  "architecture": "arm64"
+}

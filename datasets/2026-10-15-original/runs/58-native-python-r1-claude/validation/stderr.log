@@ -1,0 +1,15 @@
+test_conflicting_duplicate (test_acceptance.Acceptance.test_conflicting_duplicate) ... ok
+test_duplicate (test_acceptance.Acceptance.test_duplicate) ... ok
+test_empty (test_acceptance.Acceptance.test_empty) ... ok
+test_headers (test_acceptance.Acceptance.test_headers) ... ok
+test_invalid_rows (test_acceptance.Acceptance.test_invalid_rows) ... ok
+test_round_each_half_up (test_acceptance.Acceptance.test_round_each_half_up) ... ok
+test_types_and_currencies (test_acceptance.Acceptance.test_types_and_currencies) ... ok
+test_whitespace (test_acceptance.Acceptance.test_whitespace) ... ok
+test_decimal (test_visible.Visible.test_decimal) ... ok
+test_refund (test_visible.Visible.test_refund) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.001s
+
+OK

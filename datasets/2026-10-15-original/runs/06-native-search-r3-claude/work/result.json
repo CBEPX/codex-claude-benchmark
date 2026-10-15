@@ -1,0 +1,14 @@
+[
+  {"id": 1, "answer": "platform-ops", "evidence": [{"file": "docs/01-current.md", "line": 4}]},
+  {"id": 2, "answer": "30", "evidence": [{"file": "docs/01-current.md", "line": 5}]},
+  {"id": 3, "answer": "8", "evidence": [{"file": "docs/01-current.md", "line": 6}]},
+  {"id": 4, "answer": "14", "evidence": [{"file": "docs/01-current.md", "line": 7}]},
+  {"id": 5, "answer": "24", "evidence": [{"file": "docs/01-current.md", "line": 8}]},
+  {"id": 6, "answer": "3", "evidence": [{"file": "docs/01-current.md", "line": 9}]},
+  {"id": 7, "answer": "Europe/Moscow", "evidence": [{"file": "docs/01-current.md", "line": 10}]},
+  {"id": 8, "answer": "NDJSON", "evidence": [{"file": "docs/01-current.md", "line": 11}]},
+  {"id": 9, "answer": "запрещено", "evidence": [{"file": "docs/01-current.md", "line": 12}]},
+  {"id": 10, "answer": "запрещено", "evidence": [{"file": "docs/01-current.md", "line": 13}]},
+  {"id": 11, "answer": "не найдено", "evidence": []},
+  {"id": 12, "answer": "обязательна", "evidence": [{"file": "docs/01-current.md", "line": 14}]}
+]

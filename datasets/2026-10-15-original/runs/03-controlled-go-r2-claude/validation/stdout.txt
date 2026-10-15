@@ -1,0 +1,8 @@
+--- FAIL: TestAcceptance (0.00s)
+    --- FAIL: TestAcceptance/blank (0.00s)
+        acceptance_test.go:17: error=line 2: unexpected end of JSON input
+    --- FAIL: TestAcceptance/zero-limit (0.00s)
+        acceptance_test.go:17: error=<nil>
+FAIL
+FAIL	synthetic/records	0.195s
+FAIL

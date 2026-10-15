@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-15T16:28:14.863421+03:00",
+  "customization_free": true,
+  "advisor_disabled": true,
+  "probes": {
+    "claude": {
+      "status": "ok",
+      "seconds": null,
+      "advisor_calls": 0,
+      "hook_events": 0,
+      "user_plugins": []
+    },
+    "codex": {
+      "status": "ok",
+      "seconds": 5.785386874995311,
+      "advisor_calls": 0,
+      "hook_events": 0,
+      "user_plugins": []
+    }
+  },
+  "scored": false,
+  "real_requests": 2
+}

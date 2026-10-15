@@ -1,0 +1,120 @@
+{
+  "datasets": {
+    "2026-10-15-clean": {
+      "codex": {
+        "attempts": 15,
+        "eligible": 15,
+        "excluded": 0,
+        "passes": 15,
+        "total_seconds": 956.6570197100227,
+        "timed_attempts": 15,
+        "client_seconds": 951.5674108300154,
+        "validation_seconds": 5.07905499797198,
+        "categories": {
+          "pass": 15
+        },
+        "latency": {
+          "first_activity_seconds": {
+            "n": 15,
+            "median": 5.760944,
+            "min": 4.899856,
+            "max": 7.354641
+          },
+          "first_tool_seconds": {
+            "n": 15,
+            "median": 6.852044,
+            "min": 6.106856,
+            "max": 8.524641
+          }
+        }
+      },
+      "claude": {
+        "attempts": 15,
+        "eligible": 15,
+        "excluded": 0,
+        "passes": 12,
+        "total_seconds": 677.3952603760117,
+        "timed_attempts": 15,
+        "client_seconds": 674.0912266270461,
+        "validation_seconds": 3.280608540997491,
+        "categories": {
+          "pass": 12,
+          "tests": 3
+        },
+        "latency": {
+          "first_activity_seconds": {
+            "n": 15,
+            "median": 3.408994,
+            "min": 2.794084,
+            "max": 4.859306
+          },
+          "first_tool_seconds": {
+            "n": 15,
+            "median": 3.408994,
+            "min": 2.794084,
+            "max": 4.859306
+          }
+        }
+      }
+    },
+    "2026-10-15-original": {
+      "codex": {
+        "attempts": 30,
+        "eligible": 29,
+        "excluded": 1,
+        "passes": 29,
+        "total_seconds": 1843.9502423760277,
+        "timed_attempts": 29,
+        "client_seconds": 1836.8304196250392,
+        "validation_seconds": 7.094659873939236,
+        "categories": {
+          "pass": 29
+        },
+        "latency": {
+          "first_activity_seconds": {
+            "n": 29,
+            "median": 6.729123,
+            "min": 4.905367,
+            "max": 10.268831
+          },
+          "first_tool_seconds": {
+            "n": 29,
+            "median": 7.858414,
+            "min": 5.831367,
+            "max": 11.484831
+          }
+        }
+      },
+      "claude": {
+        "attempts": 30,
+        "eligible": 29,
+        "excluded": 1,
+        "passes": 22,
+        "total_seconds": 4473.320122414065,
+        "timed_attempts": 29,
+        "client_seconds": 4465.6751150389755,
+        "validation_seconds": 7.524230412032921,
+        "categories": {
+          "pass": 22,
+          "timeout": 4,
+          "tests": 4
+        },
+        "latency": {
+          "first_activity_seconds": {
+            "n": 29,
+            "median": 6.012314,
+            "min": 2.801847,
+            "max": 18.002201
+          },
+          "first_tool_seconds": {
+            "n": 29,
+            "median": 6.673976,
+            "min": 2.801847,
+            "max": 18.624201
+          }
+        }
+      }
+    }
+  },
+  "blind_pairs": 18
+}

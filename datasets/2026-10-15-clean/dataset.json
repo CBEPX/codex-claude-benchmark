@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "dataset_id": "2026-10-15-clean",
+  "attempts": 30,
+  "source_manifest_sha256": "73e728324d1f229f12f244490de1dc11f8b9bb16ee197f8c041192e20f8c0ff3",
+  "source_output_manifest_sha256": "19aff5261df3e8f6771f59550fc9aabccadbf3760931ce1d49d4291915606711",
+  "original_manifest": {
+    "frozen_at": "2026-10-15T16:29:16.012651+03:00",
+    "files": {
+      "benchmark.py": "a7ff1e947ba872cb9cdb9b7bd41485b0e70202b163082f3d0e634f7551d481a3",
+      "fixtures/edit/TASK.md": "b0f6a41422014b798b15a1cd19aec3b598d39493392f7d9281033b82516bfa5f",
+      "fixtures/edit/source.md": "fc189f2ecf2d91648d6160f4942948af3f9200f7d74354a1a45993356342f21f",
+      "fixtures/go/TASK.md": "ff151a0065952e6c8cabdde0e921439266fb06c46944a05ab39565bddc541f0b",
+      "fixtures/go/go.mod": "7777dce0ad62eece281b8084a8bc666fb3c24662c851b70bcd20327b5b6beb1d",
+      "fixtures/go/records.go": "2f72ff436c0258f95a8d93f46b397a61e24febfdd4f49e10035f2352efd737af",
+      "fixtures/go/records_test.go": "119f118449377a4686ddc75f40ff54e2e7d3a8a579c7abbee0a9f24f5a74f490",
+      "fixtures/python/TASK.md": "0038d1ec13082592c840a7db4d006cf258ddf83f5e703d5638c3c7ce19c2c67c",
+      "fixtures/python/aggregate.py": "8cc3830ae6c447b83e0f1d9f1046741651b7266bfa0bb001c0d38f931c57b74d",
+      "fixtures/python/test_visible.py": "995c2c71be85283e95c91d567f83d58d1d92cb1e43dcc157494d683575a3c18c",
+      "fixtures/search/TASK.md": "1d20c08c9b5c51343df6b91ab45b1dfc72738b2b0b9f16cbab9b2fb9974e3404",
+      "fixtures/search/docs/01-current.md": "9c427bcdd16a334823e03f8e73c58061eac52e61a4ddeed0dc4bc96ff9f0f3c8",
+      "fixtures/search/docs/02-archive.md": "793520957a026c53396693123b8de5974fba0c55dcef98a69112e2cf070ee2d4",
+      "fixtures/search/docs/03-background.md": "f9203e6ae16647c418dffa806b708140cd8d8e1345f3b814851e39fe94556317",
+      "fixtures/search/docs/04-background.md": "fc3d5a9ba7f33910d44e58f820a05de4be7f3572af3dc73adb16c58e6460db51",
+      "fixtures/search/docs/05-background.md": "3caa582803b4103d565136f70a350319b0c62635d209cb76643fd55a8a2d77a6",
+      "fixtures/search/docs/06-background.md": "a6ae9d2c8e7a61a56085e4fef41b74771b85d72ef2eaae94d7e8bae4026524cc",
+      "fixtures/search/docs/07-background.md": "13503bec4a9cc621dec33e4e793bf33e463c2904a3fe88035d343d72b04d4e1e",
+      "fixtures/search/docs/08-background.md": "ac13daf7f177249749084d1046431fefda492c0b741a3474e4ecc6aaacfe13f5",
+      "fixtures/search/docs/09-background.md": "07a84f3a71d9c6cc951f5e9cd0e1e984f41a92302892cbafbb10561492b3df48",
+      "fixtures/search/docs/10-background.md": "9fc4f2be207e98f02c9973621950cb2dbdeb965b233b2d4f878ba829a2c6456a",
+      "fixtures/search/docs/11-background.md": "d550de5765bb9dedfea3a2c07a0c96fb9a06051e78a4bd3442687f96fc200cc7",
+      "fixtures/search/docs/12-background.md": "815d23b3d4659773c57ab23a419eba880f51b996f3829c90d646910ed0b63427",
+      "fixtures/search/docs/13-background.md": "c5729434e2e4c83a389c1da0a6dfba361ecfe74810b38dad77c76afb6e077152",
+      "fixtures/search/docs/14-background.md": "06f99d16a2eb1221f6e9127bda50bd7688d908f69ac69f3b2d403883590b3656",
+      "fixtures/search/docs/15-background.md": "270c652720f0d3cb129e7f63e5f2defbdca1b0d8de0dd335887f46b0fdf1a0cb",
+      "fixtures/search/docs/16-background.md": "273971605efde7f35f89e52359e28fc763099355adbc9a7496e7b925c407c0f9",
+      "fixtures/search/docs/17-background.md": "d9e3e2d356b6e345aac53404d12d96cc5b11fe0008c424aa5d564bdfaeccc6e8",
+      "fixtures/search/docs/18-background.md": "023f2280f29d11c8e874348053f63d709863fdf62d124d7b63265c07a4c2871c",
+      "fixtures/search/docs/19-background.md": "154eaba052ed5844fac118356d05317b546cad4bbd55f9526555e7382c72da95",
+      "fixtures/search/docs/20-background.md": "a8d14aafcc95d2897c76974ad3b98d2e05d31b3747d18d16eb461e5c60c6449c",
+      "fixtures/search/docs/21-background.md": "fc71bfb14a024b06bec5834bc8e0d853b689c42a2de56906b2c4071d5a1dbf38",
+      "fixtures/search/docs/22-background.md": "9f03a855c99138ea20734ebf7eef16ae455536bc00ad3c49d2bd37b865f0fedb",
+      "fixtures/search/docs/23-background.md": "774c7f576363e8817c34be45400d09ef1b83d350659c1b6ebd9a0974048efa6c",
+      "fixtures/search/docs/24-background.md": "a2a7c9f06fdd99842bd474b7fc2d0523672003d030e2519e8b4e806d27579c81",
+      "fixtures/search/docs/25-background.md": "a62a43ad1592832696ce6dbc3b083cab21861497d3feeb8a321eb1c2e47dafe9",
+      "fixtures/search/docs/26-background.md": "57e1baa57751eb43c37b20083140e911a4ddb5ba14cc725883aba8a94c1f94eb",
+      "fixtures/search/docs/27-background.md": "5c5eff73b7d43293cdeee1f39693ec91cee259d8c0ed99e0539ff9ad2ef85640",
+      "fixtures/search/docs/28-background.md": "f89056283cabbf41ca214e061de1d8786d4223fe23da82fea13b9e5c5378e5da",
+      "fixtures/search/docs/29-background.md": "a59c9d8df85d11f0fec2bacaa06933ccf29129a597d2ad4189a9d7c096dd6416",
+      "fixtures/search/docs/30-background.md": "8afe7d6dc7b6056c37053e60ad61eeef81f7970a95de0d03b8d0f11e7889020d",
+      "fixtures/write/TASK.md": "aecd6f72a49c55e5be2425fc7f67ad760d7040f8911f68d532bd23959a62d9b6",
+      "fixtures/write/facts.md": "eb5680bf0633c6dbbbe75df2c21d652d9ca766416857e68d89f544cf98408c59",
+      "fixtures.py": "b54ef2a121a9f07a232e354bb3fef44ac20b5ede54b242c650ae17ba2a49afda",
+      "isolation-preflight.json": "0e2b18b5e5dec5bde1542e67d06f3c5bc0cab42ca9ec2e0e2c9bbf88665e16dc",
+      "oracle/acceptance_test.go": "dda28b7aef53158b3aabf0b18bab6ed45623fc952d8211604e3eaf19e222aa38",
+      "oracle/aggregate.py": "048edb49f52bd270048cf97cc6eabe70485a10faf603bb5cf885a307b2f1612f",
+      "oracle/edit.json": "cd18aebb8a24f126f39cad62c473465e21ccfb485dff0861f742577fe96a3a0a",
+      "oracle/edit.md": "8a9c940e5114c94d30943efcf0a4cc876d867ffe43d4231a71823ec5918f118b",
+      "oracle/records.go": "8ae6218382a9145fc4e7725912a54d6064a1b9f420b8a8e2d748fd0e518b4ec0",
+      "oracle/search.json": "f38f0bf4ecf1244117afed358086b1e02804810bb9253da82a940b8e45a0bd81",
+      "oracle/test_acceptance.py": "61e9716ff379f223ba6989bc62cdcbe958c0113e6271495ebd8d05c568b85fe9",
+      "oracle/write.json": "235cd71675e056bf5e1e62613f512fca5ffa88f909fed9ab3d7f558ba4465f98",
+      "oracle/write.md": "e5301fc8b414ed4f5b70bbd13ae3db4d8c74b6edf3855c5c29231d46a6055d77",
+      "plan.md": "b2e5b48760fc01a66ae68bc42cb8843c0502aafc88e2c4ad2ebada0286d4f327",
+      "profiles/claude-clean.json": "5d7d76afe6bea578f3959fe4c8a3172136765120589b94c1c277d205b4cff534",
+      "profiles/codex-controlled/config.toml": "9a0cf95218016e9af2f9f38f04c0461d1ed0157251fb6649bccc8874afd11dec",
+      "test_benchmark.py": "497cea44da28eb81195a8da7467be5832de7c3a3e4710674fc80a01a4e530c8e"
+    },
+    "schedule": [
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "codex"
+      },
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "codex"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "codex"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "claude"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "claude"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "codex"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "codex"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "codex"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "codex"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "claude"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "claude"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "codex"
+      },
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "codex"
+      },
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "claude"
+      },
+      {
+        "task": "go",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "codex"
+      },
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "codex"
+      },
+      {
+        "task": "write",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "claude"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "claude"
+      },
+      {
+        "task": "edit",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "codex"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "codex"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 2,
+        "client": "claude"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "claude"
+      },
+      {
+        "task": "python",
+        "mode": "controlled",
+        "rep": 1,
+        "client": "codex"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "codex"
+      },
+      {
+        "task": "search",
+        "mode": "controlled",
+        "rep": 3,
+        "client": "claude"
+      }
+    ],
+    "models": {
+      "codex": "gpt-6.1-sol",
+      "claude": "claude-opus-5-5"
+    },
+    "cli_versions": {
+      "codex": "0.162.1",
+      "claude": "2.1.300"
+    },
+    "timeout_seconds": 300
+  },
+  "timing_note": "First complete recorded model event or tool call. Historical source timestamps, not TTFT.",
+  "historical_profiles": {
+    "controlled": "high effort for both clients",
+    "native": "Codex high, Claude xhigh with user extensions; not a portable baseline"
+  },
+  "publication_note": "Filtered public evidence. Original source hashes and public artifact hashes have separate meanings."
+}

@@ -1,0 +1,1 @@
+2026-10-15T11:30:17.106295Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`/bin/zsh -lc 'rm -rf .go-build-cache\\n git status --short'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }

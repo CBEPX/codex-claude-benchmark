@@ -1,0 +1,488 @@
+"""Paired CLI benchmark. Python stdlib only; no automatic model retries."""
+import argparse
+from collections import defaultdict
+from datetime import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import random
+import re
+import shutil
+import signal
+import statistics
+import subprocess
+import sys
+import time
+import tomllib
+from zoneinfo import ZoneInfo
+
+ROOT = Path(__file__).resolve().parent
+TASKS = ('go', 'python', 'edit', 'write', 'search')
+CLIENTS = ('codex', 'claude')
+
+
+def stamp():
+    return datetime.now(ZoneInfo('Europe/Moscow')).isoformat()
+
+
+def schedule():
+    blocks = [(task, 'controlled', rep) for task in TASKS for rep in range(1, 4)]
+    random.Random(20261015).shuffle(blocks)
+    return [dict(task=t, mode=m, rep=r, client=c) for i, (t, m, r) in enumerate(blocks)
+            for c in (CLIENTS if i % 2 == 0 else CLIENTS[::-1])]
+
+
+def run_process(command, cwd, output_dir, timeout, *, env=None, prompt=''):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
+    result = dict(command=command, started_at=stamp(), load_before=os.getloadavg(), started_monotonic=start)
+    with (output_dir / 'stdout.jsonl').open('w') as out, (output_dir / 'stderr.log').open('w') as err:
+        proc = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
+                                stdout=out, stderr=err, text=True, start_new_session=True)
+        result['pid'] = proc.pid
+        owned = {}
+        def observe():
+            table = process_table()
+            parents = set(owned) | {proc.pid}
+            changed = True
+            while changed:
+                changed = False
+                for pid, info in table.items():
+                    if (pid == proc.pid or info['ppid'] in parents) and pid not in owned:
+                        owned[pid] = info
+                        parents.add(pid)
+                        changed = True
+            return table
+        try:
+            first = True
+            while True:
+                observe()
+                remaining = start + timeout - time.monotonic()
+                if remaining <= 0:
+                    result['status'] = 'timeout'
+                    break
+                try:
+                    proc.communicate(prompt if first else None, timeout=min(.15, remaining))
+                    result['status'] = 'ok' if proc.returncode == 0 else 'error'
+                    break
+                except subprocess.TimeoutExpired:
+                    first = False
+        finally:
+            observe()
+            # Match recorded process start identity before signalling sampled detached children.
+            # Short-lived double-fork children that escape between samples are not proven covered.
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                result['group_cleanup_sent'] = True
+            except ProcessLookupError:
+                result['group_cleanup_sent'] = False
+            def signal_owned(sig):
+                table=process_table()
+                for pid, info in owned.items():
+                    current=table.get(pid)
+                    if current and current['start']==info['start'] and not current['state'].startswith('Z'):
+                        try:os.kill(pid,sig)
+                        except ProcessLookupError:pass
+            signal_owned(signal.SIGTERM)
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            signal_owned(signal.SIGKILL)
+            proc.wait()
+            result['returncode'] = proc.returncode
+            table=process_table()
+            result['owned_processes']=[dict(pid=pid,**info) for pid,info in owned.items()]
+            result['surviving_observed_pids']=[pid for pid,info in owned.items() if pid in table
+                and table[pid]['start']==info['start'] and not table[pid]['state'].startswith('Z')]
+            result['cleanup_verified']=not result['surviving_observed_pids']
+            if not result['cleanup_verified']:result['status']='cleanup_error'
+    result.update(client_seconds=time.monotonic() - start, finished_at=stamp(),
+                  load_after=os.getloadavg())
+    return result
+
+
+def process_table():
+    p=subprocess.run(['ps','-axo','pid=,ppid=,pgid=,lstart=,stat=,comm='],capture_output=True,text=True,check=True)
+    result={}
+    for line in p.stdout.splitlines():
+        fields=line.split(None,9)
+        if len(fields)!=10:continue
+        result[int(fields[0])]=dict(ppid=int(fields[1]),pgid=int(fields[2]),
+            start=' '.join(fields[3:8]),state=fields[8],executable=fields[9])
+    return result
+
+
+def validate_prose(text, spec):
+    words = len(text.split())
+    errors = []
+    if not spec['min_words'] <= words <= spec['max_words']:
+        errors.append(f"words={words}, expected {spec['min_words']}..{spec['max_words']}")
+    for value in spec['protected'] + spec.get('headings', []):
+        if value not in text:
+            errors.append('missing protected fragment: ' + value)
+    for value in spec.get('forbidden', []):
+        if value.casefold() in text.casefold():
+            errors.append('contradiction: ' + value)
+    headings=spec.get('headings',[])
+    for command, heading in spec.get('command_sections',{}).items():
+        index=headings.index(heading)
+        begin=text.find(heading)
+        end=text.find(headings[index+1]) if index+1<len(headings) else len(text)
+        position=text.find(command)
+        if begin<0 or position<begin or position>=end:
+            errors.append('command outside required section: '+command)
+    return errors
+
+
+def validate_search(answer, expected):
+    if not isinstance(answer, list):
+        return ['expected a JSON array']
+    if len(answer) != len(expected):
+        return ['wrong answer count']
+    errors = []
+    for got, want in zip(answer, expected):
+        if not isinstance(got, dict) or any(got.get(k) != want[k] for k in ('id', 'answer', 'evidence')):
+            errors.append(f"wrong answer or source for question {want['id']}")
+    return errors
+
+
+def event_summary(client, path):
+    models, main_models, usage, calls, versions = set(), set(), None, 0, set()
+    advisor_calls, hook_events, user_plugins, mcp_servers = 0, 0, [], []
+    init_valid, result_valid, malformed = False, False, False
+    errors = []
+    for line in Path(path).read_text(errors='replace').splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            malformed = True
+            continue
+        if not isinstance(event, dict):
+            malformed = True
+            continue
+        if client == 'claude':
+            if event.get('type') == 'system' and event.get('subtype') == 'init':
+                plugins, servers = event.get('plugins'), event.get('mcp_servers')
+                init_valid = (isinstance(plugins, list) and all(isinstance(x, dict) for x in plugins)
+                              and isinstance(servers, list))
+                user_plugins = [x.get('source', x.get('name')) for x in (plugins or []) if isinstance(x, dict)
+                                if x.get('path') != 'builtin']
+                mcp_servers = servers or []
+                if event.get('model'):
+                    models.add(event['model'])
+                if event.get('claude_code_version'):
+                    versions.add(event['claude_code_version'])
+            message = event.get('message', {})
+            if event.get('type') == 'assistant':
+                advisor_calls += sum(x.get('type') == 'server_tool_use' for x in message.get('content', []))
+                if message.get('model'):
+                    models.add(message['model'])
+                    if event.get('parent_tool_use_id') is None:main_models.add(message['model'])
+                calls += sum(x.get('type') == 'tool_use' for x in message.get('content', []))
+            if event.get('type') == 'system' and event.get('subtype', '').startswith('hook_'):
+                hook_events += 1
+            if event.get('type') == 'result':
+                result_valid = (event.get('subtype') == 'success' and event.get('is_error') is False
+                                and isinstance(event.get('modelUsage'), dict) and bool(event['modelUsage']))
+                usage = event.get('usage')
+                models.update(event.get('modelUsage', {}))
+                if event.get('is_error'):
+                    errors.extend(event.get('errors', []) or [event.get('subtype', 'error')])
+        else:
+            if event.get('type') == 'turn.completed':
+                current = event.get('usage', {})
+                usage = {key: (usage or {}).get(key, 0) + value for key, value in current.items()
+                         if isinstance(value, (int, float))}
+            if event.get('type') == 'item.completed':
+                calls += event.get('item', {}).get('type') in {'command_execution', 'mcp_tool_call', 'web_search', 'file_change'}
+            if event.get('type') in {'error', 'turn.failed'}:
+                errors.append(str(event.get('message', event.get('error', 'error'))))
+    return dict(observed_models=sorted(models), main_models=sorted(main_models), usage=usage, tool_calls=calls,
+                advisor_calls=advisor_calls, hook_events=hook_events, user_plugins=user_plugins, mcp_servers=mcp_servers,
+                isolation_evidence_complete=init_valid and result_valid and not malformed,
+                reported_versions=sorted(versions), client_errors=errors)
+
+
+def isolation_errors(client, summary):
+    if client != 'claude':
+        return []
+    if summary.get('status') == 'ok' and not summary.get('isolation_evidence_complete'):
+        return ['clean isolation evidence incomplete for completed Claude run']
+    if (summary.get('advisor_calls') or summary.get('hook_events') or summary.get('user_plugins')
+            or summary.get('mcp_servers') or any(x != 'claude-opus-5-5' for x in summary.get('observed_models', []))):
+        return ['clean isolation violated: advisor/helper model/hooks/user plugin/MCP present']
+    return []
+
+
+def model_errors(client, summary):
+    if client == 'claude' and not summary.get('isolation_evidence_complete'):
+        return ['complete Claude init/plugins/MCP/result evidence not proven']
+    if client=='claude' and summary.get('main_models')!=['claude-opus-5-5']:
+        return ['expected exact main assistant model claude-opus-5-5 not proven']
+    return isolation_errors(client, summary)
+
+
+def resolve_executables(fake_bin=None):
+    if fake_bin is not None:
+        directory=Path(fake_bin).resolve()
+        result={name:str(directory/name) for name in CLIENTS}
+        if any(not Path(p).is_file() or Path(p).resolve().parent!=directory for p in result.values()):
+            raise ValueError('fake mode requires two real files inside the explicit fake-bin directory')
+        return result
+    return {'codex':'/opt/homebrew/bin/codex','claude':'<HOME>/bin/claude'}
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def input_digest(path):
+    if path.name=='config.toml':
+        data=tomllib.loads(path.read_text())
+        data.pop('projects',None)  # CLI-maintained per-directory trust cache; not a model/feature setting.
+        return hashlib.sha256(json.dumps(data,sort_keys=True).encode()).hexdigest()
+    return digest(path)
+
+
+def freeze():
+    paths = [ROOT/'benchmark.py', ROOT/'fixtures.py', ROOT/'test_benchmark.py', ROOT/'plan.md',
+             ROOT/'profiles/codex-controlled/config.toml', ROOT/'profiles/claude-clean.json', ROOT/'isolation-preflight.json']
+    paths += [p for directory in ('fixtures', 'oracle') for p in (ROOT/directory).rglob('*')
+              if p.is_file() and '__pycache__' not in p.parts]
+    data = dict(frozen_at=stamp(), files={str(p.relative_to(ROOT)):input_digest(p) for p in sorted(paths)},
+                schedule=schedule(), models={'codex':'gpt-6.1-sol','claude':'claude-opus-5-5'},
+                cli_versions={'codex':'0.162.1','claude':'2.1.300'}, timeout_seconds=300)
+    (ROOT/'manifest.json').write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    return data
+
+
+def check_manifest(manifest):
+    changed = [name for name, sha in manifest['files'].items()
+               if not (ROOT/name).is_file() or input_digest(ROOT/name) != sha]
+    if changed:
+        raise RuntimeError('frozen inputs changed: ' + ', '.join(changed))
+
+
+def validate_run(task, work, logs, env):
+    start = time.monotonic()
+    errors = []
+    original = ROOT/'fixtures'/task
+    for p in original.rglob('*'):
+        if not p.is_file() or p.name in {'records.go', 'aggregate.py'}:
+            continue
+        candidate = work/p.relative_to(original)
+        if not candidate.is_file() or digest(candidate) != digest(p):
+            errors.append('immutable input changed: '+str(p.relative_to(original)))
+    if task in {'go', 'python'}:
+        name = 'acceptance_test.go' if task == 'go' else 'test_acceptance.py'
+        verifier=logs/'validation-work';verifier.mkdir(parents=True)
+        source='records.go' if task=='go' else 'aggregate.py'
+        shutil.copy2(work/source,verifier/source)
+        visible=['go.mod','records_test.go'] if task=='go' else ['test_visible.py']
+        for value in visible:shutil.copy2(original/value,verifier/value)
+        shutil.copy2(ROOT/'oracle'/name, verifier/name)
+        command = ['go','test','-json','-count=1','./...'] if task == 'go' else [sys.executable,'-I','-m','unittest','discover','-v']
+        checked = run_process(command, verifier, logs/'validation', 45, env=env)
+        if checked['status'] != 'ok':
+            errors.append('external acceptance tests: '+checked['status'])
+        stdout=(logs/'validation/stdout.jsonl').read_text()
+        stderr=(logs/'validation/stderr.log').read_text()
+        if task=='go':
+            completed=set()
+            for line in stdout.splitlines():
+                try:event=json.loads(line)
+                except ValueError:continue
+                if event.get('Action')=='pass' and event.get('Test'):completed.add(event['Test'])
+            if not {'TestBasic','TestDeduplicate','TestAcceptance'}<=completed:
+                errors.append('external Go test completion proof missing')
+        elif not re.search(r'Ran 10 tests? in ',stderr) or not re.search(r'^OK$',stderr,re.M):
+            errors.append('external Python test completion proof missing')
+    else:
+        name = 'result.json' if task == 'search' else 'result.md'
+        try:
+            text = (work/name).read_text()
+            spec = json.loads((ROOT/'oracle'/f'{task}.json').read_text())
+            if task == 'search':
+                errors += validate_search(json.loads(text), spec)
+            else:
+                errors += validate_prose(text, spec)
+                if task == 'write':
+                    from fixtures import COMMANDS, HEADINGS
+                    for values in (COMMANDS, HEADINGS):
+                        positions = [text.find(x) for x in values]
+                        if -1 in positions or positions != sorted(positions):
+                            errors.append('required order changed')
+        except (OSError, ValueError) as error:
+            errors.append(str(error))
+    return dict(errors=errors, validation_seconds=time.monotonic()-start)
+
+
+def client_command(row, logs, executables=None):
+    executables=executables or resolve_executables()
+    if row['client'] == 'codex':
+        return [executables['codex'],'--no-daemon','exec','--json','--skip-git-repo-check',
+                '-m','gpt-6.1-sol','-c','model_reasoning_effort="high"',
+                '-c','approval_policy="never"','-s','workspace-write',
+                '--add-dir',str(ROOT/'cache'),
+                '-c','projects.'+json.dumps(str(logs/'work'))+'.trust_level="trusted"',
+                '-o',str(logs/'final.txt'),'-']
+    effort = 'xhigh' if row['mode'] == 'native' else 'high'
+    command = [executables['claude'],'--print','--model','claude-opus-5-5','--effort',effort,
+               '--verbose','--output-format','stream-json','--include-hook-events',
+               '--permission-mode','dontAsk','--permission-prompts','none',
+               '--tools','Bash,Read,Write,Edit,Glob,Grep',
+               '--allowedTools','Bash,Read,Write,Edit,Glob,Grep']
+    if row['mode'] == 'controlled':
+        command += ['--safe-mode','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
+                    '--setting-sources','', '--settings', str(ROOT/'profiles/claude-clean.json'),
+                    '--disable-slash-commands']
+    return command
+
+
+def client_environment(row):
+    env = os.environ.copy()
+    for name in ('CODEX_THREAD_ID','CLAUDECODE','CLAUDE_CODE_ENTRYPOINT'):
+        env.pop(name, None)
+    env['GOCACHE'] = str(ROOT/'cache/go')
+    env['GOTOOLCHAIN'] = 'local'
+    if row['client'] == 'codex':
+        env['CODEX_HOME'] = str(ROOT/'profiles/codex-controlled')
+    else:
+        env['CLAUDE_CODE_DISABLE_ADVISOR_TOOL'] = '1'
+    return env
+
+
+def report():
+    import html
+    path = ROOT/'results.jsonl'
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    groups = defaultdict(list)
+    for row in rows:
+        groups[row['mode'],row['task'],row['client']].append(row)
+    lines = ['# Скорость Codex и Claude: синтетический benchmark', '',
+             f'Обновлено: {stamp()}. Учтено {len(rows)}/30 результатов.', '',
+             'Время включает запуск CLI, работу и внешнюю проверку. В таблице медиана и min–max только успешных запусков. '
+             'PASS текстов означает формальные проверки; стиль требует human acceptance. Ошибки сохранены.', '',
+             '| Режим | Задание | Codex: PASS; секунды | Claude: PASS; секунды | Codex / Claude |',
+             '|---|---|---|---|---|']
+    for mode in ('controlled',):
+        for task in TASKS:
+            cells, medians = [], []
+            for client in CLIENTS:
+                entries=groups[mode,task,client]
+                eligible=[x for x in entries if x['status']!='invalid_protocol']
+                times=[x['total_seconds'] for x in eligible if x['passed']]
+                medians.append(statistics.median(times) if times else None)
+                timing=f'{statistics.median(times):.2f} [{min(times):.2f}–{max(times):.2f}]' if times else '—'
+                excluded=f' (исключено {len(entries)-len(eligible)})' if len(entries)!=len(eligible) else ''
+                cells.append(f'{len(times)}/{len(eligible)}{excluded}; {timing}')
+            # A ratio is only eligible when both complete three-run cohorts passed.
+            paired = all(len(groups[mode,task,c])==3 and all(x['passed'] for x in groups[mode,task,c]) for c in CLIENTS)
+            ratio=f'{medians[0]/medians[1]:.2f}×' if paired else '—'
+            lines.append(f'| {mode} | {task} | {cells[0]} | {cells[1]} | {ratio} |')
+    lines += ['', 'Ограничения: разные встроенные system prompts и tools; high не эквивалентен между моделями. '
+              'Новые сессии не гарантируют холодный серверный cache. Три повтора не доказывают статистическую значимость. '
+              'Codex model identity — requested; Claude дополнительно сообщает model identity в событиях. '
+              'Токены и tool calls находятся в results.jsonl; generation TPS не рассчитывается.', '', '## Сбои', '']
+    if any(x['status']=='invalid_protocol' for x in rows):
+        lines += ['Два ошибочных запуска при проверке runner занимают слоты controlled/go/r2. '
+                  'Они исключены из скорости и успешности моделей, сохранены в лимите 60 и не повторялись. '
+                  'В остальных ячейках запланировано по три повтора.', '']
+    for row in rows:
+        if not row['passed']:
+            lines.append(f"- {row['run_id']}: {row['status']}; "+'; '.join(row.get('errors', [])))
+    (ROOT/'report.md').write_text('\n'.join(lines)+'\n')
+    page = ['<!doctype html><meta charset="utf-8"><title>Codex / Claude benchmark</title>',
+            '<style>body{font:16px system-ui;max-width:1400px;margin:32px auto;padding:0 20px;color:#17212b} '
+            'table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd2d8;padding:10px;vertical-align:top} '
+            '.pair{display:grid;grid-template-columns:1fr 1fr;gap:24px}pre{white-space:pre-wrap;font:15px/1.6 system-ui} '
+            'details{margin:16px 0}article{border:1px solid #ccd2d8;padding:18px}@media(max-width:800px){.pair{grid-template-columns:1fr}}</style>',
+            '<h1>Codex / Claude: скорость и результат</h1><pre>'+html.escape('\n'.join(lines))+'</pre>',
+            '<h2>Тексты A/B</h2><p>Оцените ясность, полноту и удобство выполнения до раскрытия авторов. Формальный PASS не означает оценку стиля.</p>']
+    for mode in ('controlled',):
+        for task in ('edit','write'):
+            for rep in range(1,4):
+                pair=[x for x in rows if x['mode']==mode and x['task']==task and x['rep']==rep]
+                if len(pair)!=2:continue
+                random.Random(f'{mode}-{task}-{rep}').shuffle(pair)
+                page.append(f'<h3>{mode} / {task} / повтор {rep}</h3><div class="pair">')
+                for letter,row in zip('AB',pair):
+                    p=ROOT/'runs'/row['run_id']/'work/result.md'
+                    text=p.read_text() if p.exists() else '(результат отсутствует)'
+                    page.append(f'<article><h4>{letter}</h4><pre>{html.escape(text)}</pre></article>')
+                page.append('</div><details><summary>Раскрыть авторов и время</summary><p>'+html.escape('; '.join(f"{a}: {x['client']}, {x['total_seconds']:.2f} с, PASS={x['passed']}" for a,x in zip('AB',pair)))+'</p></details>')
+    (ROOT/'comparison.html').write_text('\n'.join(page))
+
+
+def run_series(limit=None, fake_bin=None):
+    manifest=json.loads((ROOT/'manifest.json').read_text())
+    check_manifest(manifest)
+    preflight=json.loads((ROOT/'isolation-preflight.json').read_text())
+    if not preflight['customization_free']:
+        raise RuntimeError('controlled isolation preflight is not green')
+    results=ROOT/'results.jsonl'
+    previous=[json.loads(x) for x in results.read_text().splitlines()] if results.exists() else []
+    if any(isolation_errors(x['client'], x) for x in previous):
+        raise RuntimeError('prior isolation violation recorded; no further model launches')
+    done={x['run_id'] for x in previous}
+    auth_blocked={(x['mode'],x['client']) for x in previous if x.get('auth_blocked')}
+    performed=0
+    executables=resolve_executables(fake_bin)
+    for index,row in enumerate(manifest['schedule'],1):
+        run_id=f"{index:02d}-{row['mode']}-{row['task']}-r{row['rep']}-{row['client']}"
+        if run_id in done:continue
+        if limit is not None and performed>=limit:break
+        check_manifest(manifest)
+        logs=ROOT/'runs'/run_id;work=logs/'work'
+        if logs.exists():
+            raise RuntimeError('unrecorded run directory exists; audit before resume: '+run_id)
+        shutil.copytree(ROOT/'fixtures'/row['task'],work)
+        subprocess.run(['git','init','--quiet'],cwd=work,check=True)
+        env=client_environment(row)
+        print(json.dumps(dict(event='start',index=index,run_id=run_id,at=stamp())),flush=True)
+        if (row['mode'],row['client']) in auth_blocked:
+            r=dict(status='blocked',client_seconds=0,errors=['prior authentication failure; no login attempted'])
+        else:
+            r=run_process(client_command(row,logs,executables),work,logs,300,env=env,prompt=(work/'TASK.md').read_text())
+            r.update(event_summary(row['client'],logs/'stdout.jsonl'))
+            checked=validate_run(row['task'],work,logs,env)
+            r.update(checked)
+            if r.get('client_errors'):r['errors']+=['client error: '+str(x) for x in r['client_errors']]
+            r['errors']+=model_errors(row['client'],r)
+            raw=(logs/'stdout.jsonl').read_text(errors='replace')+'\n'+(logs/'stderr.log').read_text(errors='replace')
+            if any(token in raw.lower() for token in ('not logged in','please run /login','authentication_error','missing bearer')):
+                r['auth_blocked']=True;auth_blocked.add((row['mode'],row['client']))
+        r.update(row,run_id=run_id,index=index)
+        started=r.pop('started_monotonic',None)
+        r['total_seconds']=time.monotonic()-started if started is not None else r['client_seconds']
+        r['passed']=r['status']=='ok' and not r.get('errors')
+        (logs/'result.json').write_text(json.dumps(r,ensure_ascii=False,indent=2))
+        with results.open('a') as f:
+            f.write(json.dumps(r,ensure_ascii=False)+'\n');f.flush();os.fsync(f.fileno())
+        performed+=1
+        report()
+        print(json.dumps(dict(event='done',run_id=run_id,passed=r['passed'],seconds=round(r['total_seconds'],2),errors=r.get('errors',[])),ensure_ascii=False),flush=True)
+        if isolation_errors(row['client'], r):
+            raise RuntimeError('Clean isolation failed; remaining model launches stopped')
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('action',choices=['freeze','run','report'])
+    parser.add_argument('--limit',type=int)
+    group=parser.add_mutually_exclusive_group()
+    group.add_argument('--real',action='store_true')
+    group.add_argument('--fake-bin',type=Path)
+    args=parser.parse_args()
+    if args.action=='freeze':print(json.dumps({'files':len(freeze()['files']),'runs':len(schedule())}))
+    elif args.action=='run':
+        if not args.real and args.fake_bin is None:parser.error('run requires explicit --real or --fake-bin')
+        run_series(args.limit,args.fake_bin)
+    else:report()

@@ -1,0 +1,135 @@
+"""Presentation only: reads benchmark evidence; never invokes model clients."""
+import json
+import html
+import re
+import statistics
+import sys
+from collections import Counter
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+
+
+def classify(row):
+    if row['status'] == 'invalid_protocol':
+        return 'excluded'
+    if row['status'] == 'timeout':
+        return 'timeout'
+    if row['status'] != 'ok':
+        return 'client'
+    if row['passed']:
+        return 'pass'
+    if any('external ' in x and 'test' in x for x in row.get('errors', [])):
+        return 'tests'
+    return 'requirements'
+
+
+LABELS = {'pass':'PASS', 'tests':'провал тестов', 'requirements':'нарушение требований',
+          'timeout':'таймаут CLI', 'client':'ошибка CLI', 'excluded':'ошибка подготовки (исключено)'}
+TASKS = {'go':'Go', 'python':'Python', 'edit':'Редактирование', 'write':'Написание', 'search':'Поиск'}
+
+
+def categories(row):
+    result = [classify(row)]
+    if result[0] in {'timeout','client'} and any('external ' in x and 'test' in x for x in row.get('errors', [])):
+        result.append('tests')
+    return result
+
+
+def evidence(row):
+    directory = ROOT/'runs'/row['run_id']
+    names = set()
+    path = directory/'validation/stdout.jsonl'
+    if row['task'] == 'go' and path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get('Action') == 'fail' and event.get('Test'):
+                names.add(event['Test'])
+        names = {x for x in names if not any(y.startswith(x+'/') for y in names)}
+    path = directory/'validation/stderr.log'
+    if row['task'] == 'python' and path.exists():
+        names.update(re.findall(r'^(?:FAIL|ERROR): (.+)$', path.read_text(), re.M))
+    details = '; '.join(sorted(names)) if names else '; '.join(row.get('errors', []))
+    if 'TestAcceptance/zero-limit' in names:
+        details += ' (пустой поток, maxBytes=0: ожидалась ошибка, получено nil)'
+    if classify(row) == 'timeout':
+        details = 'CLI не завершился за 300 с. ' + (details or 'Артефакт прошёл формальные проверки.')
+    return details or row['status']
+
+
+def render(rows):
+    table = [['Режим / задача', 'Codex: PASS; медиана с [min–max]', 'Сбои Codex',
+              'Claude: PASS; медиана с [min–max]', 'Сбои Claude', 'Кто быстрее при 3/3 PASS']]
+    for mode in ('native', 'controlled'):
+        for task, title in TASKS.items():
+            cells, medians, cohorts = [], [], []
+            for client in ('codex', 'claude'):
+                group = [x for x in rows if (x['mode'],x['task'],x['client']) == (mode,task,client)]
+                eligible = [x for x in group if classify(x) != 'excluded']
+                times = [x['total_seconds'] for x in eligible if x['passed']]
+                median = statistics.median(times) if times else None
+                medians.append(median)
+                cohorts.append(len(group) == 3 and len(times) == 3)
+                timing = f'{median:.2f} [{min(times):.2f}–{max(times):.2f}]' if times else '—'
+                counts = Counter(k for x in group if not x['passed'] for k in categories(x))
+                failures = '; '.join(f'{LABELS[k]}: {n}' for k,n in counts.items()) or '—'
+                cells += [f'{len(times)}/{len(eligible)}; {timing}', failures]
+            winner = '—'
+            if all(cohorts):
+                winner = ('Codex' if medians[0] < medians[1] else 'Claude') + f' ×{max(medians)/min(medians):.2f}'
+            table.append([f'{mode} / {title}', *cells, winner])
+    failures = [['Запуск', 'Итог', 'Конкретная причина / тест', 'Время, с']]
+    for row in rows:
+        if not row['passed']:
+            seconds = row.get('total_seconds')
+            failures.append([row['run_id'], ' + '.join(LABELS[k] for k in categories(row)), evidence(row), f'{seconds:.2f}' if seconds is not None else '—'])
+    intro = (f'Учтено {len(rows)}/60 результатов. Время: запуск CLI → работа → внешняя проверка. '
+             'Медианы только для PASS. Победитель указан только при 3/3 PASS у обоих клиентов. '
+             'Сбои могут пересекаться: один запуск может превысить таймаут и провалить тесты. '
+             'Две ошибки подготовки исключены из знаменателя успешности моделей и сохранены в лимите 60. '
+             'PASS текстов подтверждает формальные требования; оценка стиля человеком остаётся открытой.')
+    limitations = ('native: текущие настройки, Codex high / Claude xhigh; controlled: без пользовательских '
+                   'настроек, оба high. Разные system prompts и tools; high между моделями не эквивалентен. '
+                   'Три повтора не доказывают статистическую значимость. Generation TPS не измерялся. '
+                   'Фоновая нагрузка общей машины не изолирована; load average записан для каждого запуска. '
+                   'Codex gpt-6.1-sol: запрошенная модель; Claude claude-opus-5-5: также проверены события модели.')
+    if (ROOT/'environment-drift.json').exists():
+        limitations += (' Во время серии глобальный default model Codex изменился на gpt-6-astra; '
+                        'каждый запуск benchmark явно передаёт gpt-6.1-sol/high. '
+                        'Изменение подтверждено хешем в environment-drift.json; чужие настройки сохраняются.')
+    def md_table(values):
+        escaped = [[str(v).replace('|', '\\|').replace('\n', ' ') for v in row] for row in values]
+        return '\n'.join('| '+' | '.join(row)+' |' for row in [escaped[0], ['---']*len(escaped[0]), *escaped[1:]])
+    markdown = '# Codex и Claude: скорость и успешность\n\n'+intro+'\n\n'+md_table(table)+'\n\n## Сбои с примерами\n\n'+md_table(failures)+'\n\n'+limitations+'\n'
+    (ROOT/'summary-detailed.md').write_text(markdown)
+    def html_table(values):
+        return '<table>'+''.join('<tr>'+''.join(f'<{tag}>{html.escape(str(v))}</{tag}>' for v in row)+'</tr>'
+                for i,row in enumerate(values) for tag in ['th' if i == 0 else 'td'])+'</table>'
+    original = (ROOT/'comparison.html').read_text()
+    ab = original[original.index('<h2>Тексты A/B'):]
+    style = original[original.index('<style>'):original.index('</style>')+8]
+    page = '<!doctype html><html lang="ru"><meta charset="utf-8"><title>Codex / Claude</title>'+style
+    page += '<h1>Скорость и успешность</h1><p>'+html.escape(intro)+'</p>'+html_table(table)
+    page += '<h2>Сбои с примерами</h2>'+html_table(failures)+'<p>'+html.escape(limitations)+'</p>'+ab+'</html>'
+    (ROOT/'comparison-detailed.html').write_text(page)
+    return Counter(k for x in rows for k in categories(x))
+
+
+def self_check():
+    assert classify({'status':'invalid_protocol','passed':False,'errors':[]}) == 'excluded'
+    assert classify({'status':'timeout','passed':False,'errors':[]}) == 'timeout'
+    assert classify({'status':'ok','passed':False,'errors':['external acceptance tests: error']}) == 'tests'
+    assert classify({'status':'ok','passed':False,'errors':['missing protected fragment: x']}) == 'requirements'
+    assert classify({'status':'ok','passed':True,'errors':[]}) == 'pass'
+    assert categories({'status':'timeout','passed':False,'errors':['external acceptance tests: error']}) == ['timeout','tests']
+
+
+if __name__ == '__main__':
+    self_check()
+    if '--check' not in sys.argv:
+        # Ignore an in-progress trailing append; the runner fsyncs each complete line.
+        lines = (ROOT/'results.jsonl').read_text().splitlines(keepends=True)
+        print(dict(render(sorted([json.loads(x) for x in lines if x.endswith('\n')], key=lambda x:x['index']))))

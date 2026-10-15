@@ -1,0 +1,27 @@
+{
+  "omitted_event_counts": {
+    "event_type:rate_limit_event": 42
+  },
+  "removed_categories": [
+    "credentials and auth files",
+    "account identifiers and subscription quotas",
+    "request/session IDs",
+    "native system/developer instruction contexts and reasoning",
+    "tool input bodies and tool output bodies in model traces",
+    "private tracking records, local profile inventories, Git history, caches and plugin state"
+  ],
+  "redacted_categories": [
+    "home paths",
+    "private URLs and hostnames",
+    "email addresses",
+    "UUID values"
+  ],
+  "preserved_categories": [
+    "synthetic prompts and inputs",
+    "model solution files",
+    "external acceptance stdout/stderr",
+    "attempt status and timing",
+    "token usage and model identity fields",
+    "source hash commitments"
+  ]
+}

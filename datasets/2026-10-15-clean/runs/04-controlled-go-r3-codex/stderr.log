@@ -1,0 +1,2 @@
+2026-10-15T13:32:51.890646Z ERROR codex_core::tools::router: error=apply_patch verification failed: invalid patch: multiple operations target <HOME>/project/infra/.worktrees/codex-claude-speed-20261015/.superpowers/sdd/codex-claude-clean-20261015/runs/04-controlled-go-r3-codex/work/records.go
+2026-10-15T13:33:47.406848Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`/bin/zsh -lc 'rm -rf .go-cache .go-path; ls -la'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }
