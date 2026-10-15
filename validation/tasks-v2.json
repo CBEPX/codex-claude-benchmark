@@ -1,0 +1,83 @@
+{
+  "contract_version": "tasks-v2",
+  "validated_at": "2026-10-15T22:44:14+03:00",
+  "base_commit": "a7e37526490e08017793658bcc517fb3e7707693",
+  "environment": {
+    "python": "3.15.0",
+    "go": "1.27.2",
+    "os": "darwin/arm64"
+  },
+  "checks": {
+    "local_tests": {
+      "passed": 30,
+      "failed": 0,
+      "seconds": 30.856
+    },
+    "fake_e2e_scored_attempts": 30,
+    "historical_replay": {
+      "matched": 88,
+      "mismatched": 0,
+      "preparation_incidents_excluded": 2
+    },
+    "historical_files_unchanged": 600,
+    "reports_byte_identical": true,
+    "go_reference_passed": true,
+    "go_semantic_mutants_rejected": 6,
+    "python_reference_passed": true,
+    "python_semantic_mutants_rejected": 5,
+    "fixture_regeneration_byte_identical": true,
+    "privacy_issues": 0,
+    "markdown_class_a_markers": 0
+  },
+  "red_evidence": {
+    "old_go_suite_missed": [
+      "ID normalization",
+      "character counting",
+      "read before invalid limit rejection",
+      "insufficient CRLF buffer"
+    ],
+    "old_python_suite_missed": [
+      "fixed column order",
+      "ignored currency conflict",
+      "ignored amount conflict",
+      "unrounded duplicate comparison",
+      "Unicode digits"
+    ],
+    "reference_failures_before_fix": [
+      "terminal bare CR byte count",
+      "large valid Decimal amount",
+      "malformed CSV header exception"
+    ]
+  },
+  "new_real_benchmark_requests": 0,
+  "human_quality_reviews_completed": 0,
+  "limits": [
+    "Selected mutation samples are not exhaustive",
+    "Fake clients prove integration, not model speed or capability",
+    "Human prose quality remains unmeasured",
+    "No new real-client isolation qualification in this stage"
+  ],
+  "source_sha256": {
+    "benchmark.py": "6cd6dab347841339cb1c986046738a417d8bf1eece4b33f8b28a14851f2b7e70",
+    "engine.py": "3eeae21f090265e0c4448d30e497f0c5a6d253c5ba1dceb473cd2626714ef35c",
+    "fixtures.py": "2b645ab44c8eb1c3aa22c50f6721e8cf1b46e6aa33440ca19bf14f2d28c0e056",
+    "analyze_go.py": "8a8afad20281fb8eedaf0fe4d073146adb5a75e5a39da5baa50d2205ad1c7f97",
+    "oracle/acceptance_test.go": "39be28adee5ceca8a242ac00b64eb597749a7db38b0f94791596b8565e16be39",
+    "oracle/aggregate.py": "60d42949c41a790b3147a7c0501b6b81c89746de50fbdee3d3283757cc95405e",
+    "oracle/edit.json": "8c703934b7693a81b87d3ae895bb1ea7e96dfd384ef197303964fb3e58db33b3",
+    "oracle/edit.md": "8a9c940e5114c94d30943efcf0a4cc876d867ffe43d4231a71823ec5918f118b",
+    "oracle/records.go": "fe70f98174247fe56fec6da4fdea9f58b4224cf89daf5fd8fdd9004d8c46ff7a",
+    "oracle/search.json": "d3d3e2851df9f47bb41d6c6fdfd3127d1a38adf9a64b78710278b1c2cba52b0c",
+    "oracle/test_acceptance.py": "02dad37ba3dcfd404c76f823ccd8a3287e5ab771bb61264c7342815d0dade8a7",
+    "oracle/write.json": "da31a40fba72cc907eda451b591b2ea521ae7c09c7ec3f5902d4b08954270c19",
+    "oracle/write.md": "e5301fc8b414ed4f5b70bbd13ae3db4d8c74b6edf3855c5c29231d46a6055d77",
+    "tests/test_archive.py": "5311452eb8fb4ae4ad7d8022f2539f1e143249ca83a4224ffe7f94d998a11655",
+    "tests/test_engine.py": "3da344dd86ffa7b11ec6329e01a241b1637753287d6ca66035c75a54e12bbf23",
+    "tests/test_go_contract.py": "bbda66719f62ccd4198edde9e439ff2480b6757343b2c596bbf5b8e158ec13b8",
+    "tests/test_privacy.py": "88ec186550e92f325505376f58a3df57fd3a7f492263a5c5f982c690131b2f33",
+    "tests/test_python_contract.py": "2d2a7c9e9146e851b5ecfabcad927eb30e792e946f218b770689c06415176670",
+    "tests/test_reporting.py": "8ba7d65a70d2a4850589d60db68e939087f3f4d6b70089762fd12f832f65d8e4",
+    "tests/test_runner.py": "bcba99562727124ed22716dcd3e0c339b0de10acc7b72c3acb71b11a06b25b57",
+    "tests/test_text_contract.py": "ad9b2fef889457835075113c5cfaeffb1f419e8b3b2eb8fadb964240592162df"
+  }
+}

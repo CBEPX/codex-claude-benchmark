@@ -41,23 +41,52 @@ def validate_prose(text, spec):
         if value.casefold() in text.casefold():
             errors.append('contradiction: ' + value)
     headings=spec.get('headings',[])
-    for command, heading in spec.get('command_sections',{}).items():
-        index=headings.index(heading)
-        begin=text.find(heading)
-        end=text.find(headings[index+1]) if index+1<len(headings) else len(text)
-        position=text.find(command)
-        if begin<0 or position<begin or position>=end:
-            errors.append('command outside required section: '+command)
+    if spec.get('formal_version') == 2:
+        if '<!--' in text:errors.append('HTML comments are forbidden')
+        numbers=lambda value:set(re.findall(r'\d+(?:[.,]\d+)*',value))
+        if numbers(text)-numbers(' '.join(spec['protected'])):
+            errors.append('new numeric literal')
+        sections=[];commands=[];current=None;fence=None
+        for line in text.splitlines():
+            stripped=line.strip()
+            marker=re.match(r'^(`{3,}|~{3,})',stripped)
+            if marker:
+                token=marker[1]
+                if fence is None:fence=token
+                elif token[0]==fence[0] and len(token)>=len(fence) and stripped==token:fence=None
+                continue
+            if fence is None and re.match(r'^##(?:\s|$)',line):
+                current=line.rstrip();sections.append(current)
+            if 'northctl' in line and spec.get('command_sections'):
+                commands.append((stripped.strip('`'),current))
+        if headings and sections!=headings:
+            errors.append('expected exact ordered level-two headings')
+        if spec.get('command_sections') and commands!=list(spec['command_sections'].items()):
+            errors.append('expected exact ordered commands in their required sections')
+    else:
+        for command, heading in spec.get('command_sections',{}).items():
+            index=headings.index(heading)
+            begin=text.find(heading)
+            end=text.find(headings[index+1]) if index+1<len(headings) else len(text)
+            position=text.find(command)
+            if begin<0 or position<begin or position>=end:
+                errors.append('command outside required section: '+command)
     return errors
 
 def validate_search(answer, expected):
+    strict=isinstance(expected,dict) and expected.get('formal_version')==2
+    if strict:expected=expected['answers']
     if not isinstance(answer, list):
         return ['expected a JSON array']
     if len(answer) != len(expected):
         return ['wrong answer count']
     errors = []
     for got, want in zip(answer, expected):
-        if not isinstance(got, dict) or any(got.get(k) != want[k] for k in ('id', 'answer', 'evidence')):
+        valid=isinstance(got,dict)
+        if strict:valid=valid and type(got.get('id')) is int and isinstance(got.get('answer'),str) and isinstance(got.get('evidence'),list)
+        if valid and strict:
+            valid=all(isinstance(e,dict) and isinstance(e.get('file'),str) and type(e.get('line')) is int for e in got['evidence'])
+        if not valid or any(got.get(k) != want[k] for k in ('id', 'answer', 'evidence')):
             errors.append(f"wrong answer or source for question {want['id']}")
     return errors
 

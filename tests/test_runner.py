@@ -32,7 +32,7 @@ if not probe:
  elif (work/'aggregate.py').exists():shutil.copy2(o/'aggregate.py',work/'aggregate.py')
  elif (work/'source.md').exists():shutil.copy2(o/'edit.md',work/'result.md')
  elif (work/'facts.md').exists():shutil.copy2(o/'write.md',work/'result.md')
- else:shutil.copy2(o/'search.json',work/'result.json')
+ else:(work/'result.json').write_text(json.dumps(json.loads((o/'search.json').read_text())['answers']))
 if client=='codex':
  if '-o' in sys.argv:pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_text('CLEAN_READY' if probe else 'Done.')
  print(json.dumps({'type':'turn.completed','usage':{'output_tokens':42}}))
@@ -53,6 +53,7 @@ class RunnerTests(unittest.TestCase):
             self.assertTrue(all(x['passed'] for x in rows))
             self.assertTrue(all(x['latency']['basis']=='monotonic_received_event' for x in rows))
             self.assertTrue(json.loads((out/'preflight.json').read_text())['fake'])
+            self.assertEqual(json.loads((out/'manifest.json').read_text())['contract_version'],'tasks-v2')
             self.assertFalse((out/'profiles/codex-controlled/auth.json').exists())
 
     def test_resume_checks_prior_isolation_failure_before_probe_dispatch(self):

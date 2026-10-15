@@ -1,4 +1,5 @@
 {
+  "formal_version": 2,
   "min_words": 450,
   "max_words": 550,
   "protected": [
