@@ -68,6 +68,37 @@ class RunnerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'Prior isolation'):
                     benchmark.main(['run','--fake-bin',str(fake),'--output-dir',str(out),'--resume'])
 
+    def test_partial_codex_json_preserves_attempt_and_stops_resume(self):
+        import benchmark
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);fake=root/'fake';fake_clients(fake);out=root/'run'
+            p=fake/'codex';p.write_text(p.read_text()+"\nif not probe:print('{partial')\n")
+            with patch.object(benchmark,'qualify'):
+                with self.assertRaisesRegex(ValueError,'Isolation failure'):
+                    benchmark.main(['run','--fake-bin',str(fake),'--output-dir',str(out)])
+            rows=[json.loads(x) for x in (out/'results.jsonl').read_text().splitlines()]
+            self.assertEqual(len(rows),1);self.assertFalse(rows[0]['passed'])
+            self.assertTrue(rows[0]['postprocessing_failed'])
+            self.assertTrue((out/'runs'/rows[0]['run_id']/'result.json').is_file())
+            with patch.object(benchmark,'qualify',side_effect=AssertionError('must not dispatch')):
+                with self.assertRaisesRegex(ValueError,'Prior isolation'):
+                    benchmark.main(['run','--fake-bin',str(fake),'--output-dir',str(out),'--resume'])
+
+    def test_cleanup_failure_is_persisted_before_next_dispatch(self):
+        import benchmark,engine
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);fake=root/'fake';fake_clients(fake);out=root/'run';original=engine.run_process
+            def unverified(*a,**kw):
+                result=original(*a,**kw);result.update(status='cleanup_error',cleanup_verified=False);return result
+            with patch.object(benchmark,'qualify'),patch.object(engine,'run_process',side_effect=unverified) as calls:
+                with self.assertRaisesRegex(ValueError,'Isolation failure'):
+                    benchmark.main(['run','--fake-bin',str(fake),'--output-dir',str(out)])
+            self.assertEqual(calls.call_count,1)
+            rows=[json.loads(x) for x in (out/'results.jsonl').read_text().splitlines()]
+            self.assertEqual(len(rows),1);self.assertFalse(rows[0]['passed'])
+
     def test_partial_profile_setup_failure_removes_owned_auth_link(self):
         import benchmark
         from unittest.mock import patch

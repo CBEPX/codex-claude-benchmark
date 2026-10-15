@@ -118,6 +118,9 @@ def event_summary(client, path):
                 reported_versions=sorted(versions), client_errors=errors)
 
 def isolation_errors(client, summary):
+    if (summary.get('status') == 'cleanup_error' or summary.get('cleanup_verified') is False
+            or summary.get('validation_cleanup_verified') is False or summary.get('postprocessing_failed')):
+        return ['clean isolation evidence failed: cleanup or result processing unverified']
     if summary.get('context_violation'):
         return ['clean isolation evidence failed: session context invalid or customized']
     if client != 'claude':
@@ -149,6 +152,7 @@ def input_digest(path):
 def validate_run(task, work, logs, env):
     start = time.monotonic()
     errors = []
+    validation_cleanup_verified = True
     original = ROOT/'fixtures'/task
     for p in original.rglob('*'):
         if not p.is_file() or p.name in {'records.go', 'aggregate.py'}:
@@ -160,12 +164,16 @@ def validate_run(task, work, logs, env):
         name = 'acceptance_test.go' if task == 'go' else 'test_acceptance.py'
         verifier=logs/'validation-work';verifier.mkdir(parents=True)
         source='records.go' if task=='go' else 'aggregate.py'
+        if not (work/source).is_file():
+            errors.append('external acceptance tests: missing model artifact '+source)
+            return dict(errors=errors,validation_seconds=time.monotonic()-start)
         shutil.copy2(work/source,verifier/source)
         visible=['go.mod','records_test.go'] if task=='go' else ['test_visible.py']
         for value in visible:shutil.copy2(original/value,verifier/value)
         shutil.copy2(ROOT/'oracle'/name, verifier/name)
         command = ['go','test','-json','-count=1','./...'] if task == 'go' else [sys.executable,'-I','-m','unittest','discover','-v']
         checked = run_process(command, verifier, logs/'validation', 45, env=env)
+        validation_cleanup_verified = checked.get('cleanup_verified') is True
         if checked['status'] != 'ok':
             errors.append('external acceptance tests: '+checked['status'])
         stdout=(logs/'validation/stdout.jsonl').read_text()
@@ -197,7 +205,7 @@ def validate_run(task, work, logs, env):
                             errors.append('required order changed')
         except (OSError, ValueError) as error:
             errors.append(str(error))
-    return dict(errors=errors, validation_seconds=time.monotonic()-start)
+    return dict(errors=errors, validation_seconds=time.monotonic()-start,validation_cleanup_verified=validation_cleanup_verified)
 
 
 def event_activity(event):

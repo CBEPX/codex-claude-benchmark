@@ -11,7 +11,7 @@ PATTERNS={'home path':r'/(?:Users|home)/[A-Za-z0-9._-]+','private temporary path
 
 def issues(root):
     root=Path(root);found=[]
-    for folder in ('datasets','fixtures','oracle','published'):
+    for folder in ('datasets','fixtures','oracle','published','validation'):
         for path in (root/folder).rglob('*'):
             if not path.is_file() or '__pycache__' in path.parts:continue
             rel=str(path.relative_to(root))

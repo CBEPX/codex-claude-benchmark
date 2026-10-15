@@ -52,12 +52,50 @@ class EngineTests(unittest.TestCase):
             self.assertEqual((dest/'auth.json').resolve(),(source/'auth.json').resolve())
             self.assertNotIn('SYNTHETIC_AUTH_FIXTURE',(dest/'config.toml').read_text())
 
+    def test_profile_disables_host_user_skills_by_exact_path(self):
+        from unittest.mock import patch
+        import tomllib
+        with tempfile.TemporaryDirectory() as d:
+            home=Path(d);skill=home/'.agents/skills/custom/SKILL.md';skill.parent.mkdir(parents=True);skill.write_text('synthetic skill')
+            with patch.object(Path,'home',return_value=home):
+                benchmark.make_profile(home/'runtime',home/'source')
+            disabled=tomllib.loads((home/'runtime/config.toml').read_text())['skills']['config']
+            self.assertIn({'path':str(skill.resolve()),'enabled':False},disabled)
+
     def test_run_without_real_or_fake_flag_cannot_start_models(self):
         self.assertTrue(callable(getattr(benchmark,'main',None)), 'main missing')
         with tempfile.TemporaryDirectory() as d:
             p=subprocess.run([sys.executable,str(Path(benchmark.__file__)),'run','--output-dir',d],capture_output=True,text=True)
             self.assertEqual(p.returncode,2)
             self.assertIn('--real or --fake-bin',p.stderr)
+
+    def test_unverified_cleanup_stops_both_clients(self):
+        for client in ('codex','claude'):
+            for state in ({'status':'cleanup_error','cleanup_verified':False}, {'status':'ok','cleanup_verified':False}):
+                with self.subTest(client=client,state=state):
+                    self.assertTrue(engine.isolation_errors(client,state))
+
+    def test_missing_code_artifact_is_a_recorded_acceptance_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);work=root/'work';work.mkdir()
+            for task in ('go','python'):
+                with self.subTest(task=task):
+                    result=engine.validate_run(task,work,root/task,os.environ.copy())
+                    self.assertTrue(any('missing model artifact' in e for e in result['errors']))
+                    self.assertGreaterEqual(result['validation_seconds'],0)
+
+    def test_external_acceptance_cleanup_failure_blocks_series(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);work=root/'work'
+            import shutil
+            shutil.copytree(engine.ROOT/'fixtures/python',work)
+            def incomplete(command,cwd,logs,*a,**kw):
+                logs.mkdir(parents=True);(logs/'stdout.jsonl').write_text('');(logs/'stderr.log').write_text('')
+                return {'status':'cleanup_error','cleanup_verified':False}
+            with patch.object(engine,'run_process',side_effect=incomplete):
+                result=engine.validate_run('python',work,root/'logs',os.environ.copy())
+            self.assertTrue(engine.isolation_errors('codex',result))
 
     def test_codex_context_violation_is_an_isolation_failure(self):
         self.assertTrue(engine.isolation_errors('codex',{'context_violation':True}))

@@ -102,9 +102,9 @@
         "latency": {
           "first_activity_seconds": {
             "n": 29,
-            "median": 6.012314,
+            "median": 6.673976,
             "min": 2.801847,
-            "max": 18.002201
+            "max": 18.624201
           },
           "first_tool_seconds": {
             "n": 29,

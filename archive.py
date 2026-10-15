@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import tomllib
+import engine
 from urllib.parse import urlsplit
 
 PUBLIC_DOMAINS = {'github.com', 'raw.githubusercontent.com', 'developers.openai.com', 'platform.openai.com', 'docs.anthropic.com', 'code.claude.com'}
@@ -117,8 +118,8 @@ def first_events(row, source):
     start=datetime.fromisoformat(row['started_at'])
     def seconds(event):return (datetime.fromisoformat(event['timestamp'].replace('Z','+00:00'))-start).total_seconds()
     if row['client']=='claude':
-        a=[e for e in events if e.get('type')=='assistant' and e.get('timestamp') and e.get('parent_tool_use_id') is None]
-        t=[e for e in a if any(b.get('type')=='tool_use' for b in e.get('message',{}).get('content',[]))]
+        a=[e for e in events if e.get('type')=='assistant' and e.get('timestamp') and e.get('parent_tool_use_id') is None and engine.event_activity(e)[0]]
+        t=[e for e in a if engine.event_activity(e)[1]]
     else:
         tid=next((e.get('thread_id') for e in events if e.get('type')=='thread.started'),None)
         if not tid:return result
@@ -143,7 +144,7 @@ advisor_calls auth_blocked cleanup_verified client client_errors client_seconds 
 context_violation counted_in_60_launch_budget errors finished_at hook_events index isolation_evidence_complete
 load_after load_before main_models mode observed_models passed rep
 reported_versions returncode run_id started_at status task tool_calls
-total_seconds usage validation_seconds
+total_seconds usage validation_seconds validation_cleanup_verified postprocessing_failed
 """.split())
 WORK_NAMES = {'records.go','records_test.go','go.mod','aggregate.py','test_visible.py','result.md','result.json'}
 

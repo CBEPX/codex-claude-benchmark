@@ -35,6 +35,11 @@ skip_host_skill_discovery = true
     if system.exists():names|={p.parent.name for p in system.glob('*/SKILL.md')}
     for name in sorted(names):
         config+='\n[[skills.config]]\npath = '+json.dumps(str(destination/'skills/.system'/name/'SKILL.md'))+'\nenabled = false\n'
+    host_skills=set()
+    for root in (Path.home()/'.agents/skills',Path('/etc/codex/skills')):
+        host_skills.update(p.resolve() for p in list(root.rglob('SKILL.md'))+list(root.glob('*/SKILL.md')) if p.is_file())
+    for path in sorted(host_skills):
+        config+='\n[[skills.config]]\npath = '+json.dumps(str(path))+'\nenabled = false\n'
     (destination/'config.toml').write_text(config)
     auth=source_home/'auth.json'
     if auth.is_file():(destination/'auth.json').symlink_to(auth.resolve())
@@ -189,16 +194,23 @@ def run(args):
             print(json.dumps({'event':'start','run_id':rid}),flush=True)
             env=client_env(row['client'],root,bool(args.fake_bin))
             r=engine.run_process(command(row['client'],root,logs,bins,args),work,logs,300,env=env,prompt=(work/'TASK.md').read_text(),capture_events=True)
-            r.update(engine.event_summary(row['client'],logs/'stdout.jsonl'));r.update(engine.validate_run(row['task'],work,logs,env))
-            if not args.fake_bin and row['client']=='codex':
-                try:r.update(check_codex_context(root,logs/'stdout.jsonl'))
-                except ValueError as error:
-                    r['context_violation']=True;r['errors'].append(str(error))
-            r['errors']+=engine.model_errors(row['client'],r)+['client error: '+str(x) for x in r.get('client_errors',[])]
-            if row['client']=='codex' and not any(e.get('type')=='turn.completed' for e in read_events(logs/'stdout.jsonl')):r['errors'].append('Codex completed turn not proven')
-            raw=(logs/'stdout.jsonl').read_text(errors='replace')+(logs/'stderr.log').read_text(errors='replace')
-            if any(t in raw.lower() for t in ('not logged in','please run /login','authentication_error','missing bearer')):r['auth_blocked']=True;auth_blocked.add(row['client'])
-            r.update(row,index=index,run_id=rid);r['latency']=latency(logs)
+            r['errors']=[]
+            (logs/'process-result.json').write_text(json.dumps(r,indent=2))
+            try:
+                if r.get('cleanup_verified') is not True:raise ValueError('Process cleanup unverified')
+                r.update(engine.event_summary(row['client'],logs/'stdout.jsonl'));r.update(engine.validate_run(row['task'],work,logs,env))
+                if not args.fake_bin and row['client']=='codex':
+                    try:r.update(check_codex_context(root,logs/'stdout.jsonl'))
+                    except ValueError as error:
+                        r['context_violation']=True;r['errors'].append(str(error))
+                r['errors']+=engine.model_errors(row['client'],r)+['client error: '+str(x) for x in r.get('client_errors',[])]
+                if row['client']=='codex' and not any(e.get('type')=='turn.completed' for e in read_events(logs/'stdout.jsonl')):r['errors'].append('Codex completed turn not proven')
+                raw=(logs/'stdout.jsonl').read_text(errors='replace')+(logs/'stderr.log').read_text(errors='replace')
+                if any(t in raw.lower() for t in ('not logged in','please run /login','authentication_error','missing bearer')):r['auth_blocked']=True;auth_blocked.add(row['client'])
+                r['latency']=latency(logs)
+            except (OSError,ValueError,KeyError,TypeError,AttributeError,StopIteration,subprocess.SubprocessError) as error:
+                r['postprocessing_failed']=True;r['errors'].append('result processing failed: '+type(error).__name__+': '+str(error))
+            r.update(row,index=index,run_id=rid)
             started=r.pop('started_monotonic');r['total_seconds']=time.monotonic()-started;r['passed']=r['status']=='ok' and not r['errors']
             (logs/'result.json').write_text(json.dumps(r,ensure_ascii=False,indent=2))
             with file.open('a') as f:f.write(json.dumps(r,ensure_ascii=False)+'\n');f.flush();os.fsync(f.fileno())

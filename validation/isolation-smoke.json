@@ -1,0 +1,55 @@
+{
+  "observed_at": "2026-10-15T15:30:08.800339+00:00",
+  "scored": false,
+  "real_cli_requests": 2,
+  "historical_series_rerun": false,
+  "cli_versions": {
+    "codex": "codex-cli 0.162.1",
+    "claude": "2.1.300 (Claude Code)"
+  },
+  "requested_models": {
+    "codex": "gpt-6.1-sol",
+    "claude": "claude-opus-5-5"
+  },
+  "probes": {
+    "claude": {
+      "status": "ok",
+      "client_seconds": 3.7981077500007814,
+      "cleanup_verified": true,
+      "advisor_calls": 0,
+      "hook_events": 0,
+      "qualification": "PASS",
+      "exact_CLEAN_READY": true
+    },
+    "codex": {
+      "status": "ok",
+      "client_seconds": 5.789611083004274,
+      "cleanup_verified": true,
+      "qualification": "FAIL: user skill catalog in context before profile fix",
+      "exact_CLEAN_READY": true
+    }
+  },
+  "original_probe_runner_sha256": {
+    "benchmark.py": "d0a552f642c953cef6f52d70d5b8025dfeec06a17b98d24adc32e74d66c3f496",
+    "engine.py": "88e494475a39d8c4d3335e21de6bf61a25fec160d676f8e48bd2d5c5f6a4ed4e",
+    "archive.py": "dfaae8848cd8a208556400157662d4e3de51ce33722667dcbc1159a76899c367",
+    "reporting.py": "0e344f84b5721a4e3d87a44de9deb231841225e1c583c46f74c1e0e500f10494",
+    "fixtures.py": "b54ef2a121a9f07a232e354bb3fef44ac20b5ede54b242c650ae17ba2a49afda"
+  },
+  "after_profile_fix": {
+    "real_codex_request_repeated": false,
+    "local_command": "codex --no-daemon -m gpt-6.1-sol debug prompt-input CLEAN_READY",
+    "prompt_sha256": "5c056e27fbcbee6b984049d8ea249c9121bfdc208950e4e755a767ff75fec71c",
+    "user_skill_catalog_present": false,
+    "custom_instruction_markers": [],
+    "runner_source_sha256": {
+      "benchmark.py": "c9a2be531007f97241b0617ffee27f88986d03a9021966640415506cc19bf275",
+      "engine.py": "88e494475a39d8c4d3335e21de6bf61a25fec160d676f8e48bd2d5c5f6a4ed4e",
+      "archive.py": "dfaae8848cd8a208556400157662d4e3de51ce33722667dcbc1159a76899c367",
+      "reporting.py": "b2ec664dc9cbe94ac12fa770ad35a51284b3957abf098625121ef65eed0ba336",
+      "fixtures.py": "b54ef2a121a9f07a232e354bb3fef44ac20b5ede54b242c650ae17ba2a49afda"
+    }
+  },
+  "global_configuration_hashes_unchanged": true,
+  "owned_auth_link_removed": true
+}

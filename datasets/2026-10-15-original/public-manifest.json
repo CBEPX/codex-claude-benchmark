@@ -55,7 +55,7 @@
     "oracle/write.md": "e5301fc8b414ed4f5b70bbd13ae3db4d8c74b6edf3855c5c29231d46a6055d77",
     "preflight.public.json": "b502c7181b4a8d4b0d99b3e670637b3881099f2414c1559e1c56329981426216",
     "redactions.json": "1847eea10f5652e1e268587d2e930a34b2aaca7416e7c3b1e5689649fe3372d7",
-    "results.jsonl": "cadefcb2970fdd0cd414899f13e2b7aca2469e5aba8bba3597d4ed4c065fb5f0",
+    "results.jsonl": "fdb6f4ea98683c233549696ecfe8dbfaa7814b2046682798ed85bc9d582422e0",
     "runs/01-controlled-write-r3-codex/events.public.jsonl": "feadb30e1553142066d46c599b198dcc82f9353d067de9c28d64de171afcf4c7",
     "runs/01-controlled-write-r3-codex/final.txt": "d0a6822f4961536b1ff2bf7dfd5d38e9e161b456de63e59cf33b57aa739491e5",
     "runs/01-controlled-write-r3-codex/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

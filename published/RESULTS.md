@@ -69,4 +69,6 @@ Totals include failed and timed-out eligible attempts. Preparation incidents are
 
 ## Limits
 
+Go zero-limit caveat: the fixed test requires an error for maxBytes=0. The original prompt does not state that outcome explicitly. Two clean Claude Go attempts fail only this ambiguous case. The third also fails blank-line handling. PASS counts describe the fixed suite, not general Go capability.
+
 Original and clean series have different advisor and extension policies. The clean series uses high effort for both clients. Original native Claude uses xhigh. Separate system prompts and tools remain. Effort names are not equivalent across providers. Three repetitions do not establish statistical significance. Server cache and background machine load are not isolated. Codex model identity is requested, not independently verified backend identity. First-event timing is not TTFT. Missing measurements are unavailable, not zero. Generation TPS is unavailable.

@@ -67,6 +67,17 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(result['first_tool_seconds'],3)
             self.assertEqual(result.get('first_tool_at'),'2026-10-15T12:00:03Z')
 
+    def test_historical_latency_excludes_thinking_only_events(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);logs=root/'runs/r1';logs.mkdir(parents=True)
+            events=[{'type':'assistant','timestamp':'2026-10-15T12:00:01Z','message':{'content':[{'type':'thinking','thinking':'private'}]}},
+                    {'type':'assistant','timestamp':'2026-10-15T12:00:03Z','message':{'content':[{'type':'text','text':'Ready'}]}},
+                    {'type':'assistant','timestamp':'2026-10-15T12:00:04Z','message':{'content':[{'type':'tool_use'}]}}]
+            (logs/'stdout.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+            result=archive.first_events({'run_id':'r1','client':'claude','started_at':'2026-10-15T12:00:00Z'},root)
+            self.assertEqual(result['first_activity_seconds'],3)
+            self.assertEqual(result['first_tool_seconds'],4)
+
     def test_excluded_legacy_plain_validation_log_is_preserved_as_text(self):
         with tempfile.TemporaryDirectory() as d:
             src=Path(d)/'source';src.mkdir();out=Path(d)/'public'

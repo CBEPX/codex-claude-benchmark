@@ -27,6 +27,10 @@ Codex passed 15/15 attempts. Claude passed 12/15 attempts.
 The clean series had no CLI timeouts and no recorded advisor calls.
 Claude failed `TestAcceptance/zero-limit` in all three Go attempts.
 One attempt also failed `TestAcceptance/blank`.
+The zero-limit requirement is ambiguous in the prompt.
+The fixed test requires an error for `maxBytes=0`, but the prompt does not state that outcome explicitly.
+Two Claude Go attempts failed only that case. The third also failed blank-line handling.
+The 0/3 figure describes the fixed acceptance suite. It does not establish general Go capability.
 
 Total attempted time was **956.66 seconds for Codex** and **677.40 seconds for Claude**.
 These totals include failed attempts and external checks.
@@ -42,6 +46,8 @@ See [the complete tables](published/RESULTS.md) and [machine-readable summaries]
 The [HTML comparison](published/comparison.html) contains 18 blind A/B text pairs across both series.
 Download that file and open it in a browser to view the comparisons.
 GitHub's file viewer does not execute the HTML.
+
+See [release validation](VALIDATION.md) for the publication checks and two unscored isolation probes.
 
 ## Requirements
 
@@ -131,6 +137,7 @@ Codex backend identity remains unverified. Its identity is recorded as requested
 ## Isolation and interrupted runs
 
 Codex uses a dedicated `CODEX_HOME` with hooks, memories, apps, plugins, host skill discovery, and project instruction discovery disabled.
+The profile also disables discovered host user and administrator skills by exact path.
 The runner references the existing Codex auth file through a temporary local symlink.
 It removes that link on normal completion and handled setup or run errors.
 It does not copy credentials into the dataset.
@@ -140,7 +147,10 @@ Its tools are Bash, Read, Write, Edit, Glob, and Grep.
 The child process receives `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`.
 That switch was verified for the recorded Claude Code version. Future versions require a successful preflight.
 
-An advisor call, helper model, forbidden extension, or failed context check stops further launches.
+An advisor call, helper model, forbidden extension, failed context check, or unverified process cleanup stops further launches.
+The same rule applies to external acceptance processes.
+A result-processing error is recorded as a failed attempt and stops further launches.
+A missing code artifact is recorded as an acceptance failure.
 The stop condition persists across resume.
 A timeout without a final event cannot receive PASS. It does not itself prove advisor interference.
 
